@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Dynamic Menu</title>
+</head>
+<body style="background: linear-gradient(to right, #cce7ff, #e6f7ff); font-family: 'Georgia', serif; color: #003366; padding: 20px;">
+    <h1 style="text-align: center; color: #003366;">Edit Page</h1>
+    <a href="{{ url_for('index') }}" style="display: inline-block; background-color: #003366; color: white; padding: 10px 20px; border-radius: 5px; text-align: center; margin-top: 30px;">Back to Main Page</a>
+    <br><br>
+
+    <h1>Edit Dynamic Menu</h1>
+    <form method="POST">
+        Button Name: <input type="text" name="button_name" value="{{ menu_button.button_name }}"><br>
+        Button Action: <input type="text" name="button_action" value="{{ menu_button.button_action }}"><br>
+        Position: <input type="text" name="position" value="{{ menu_button.position }}"><br>
+        Chain ID: <input type="text" name="chain_id" value="{{ menu_button.chain_id }}"><br>
+        Menu Chain ID: <input type="text" name="menu_chain_id" value="{{ menu_button.menu_chain_id }}"><br>
+        <button type="submit">Save Changes</button>
+    </form>
+    <a href="{{ url_for('manage_dynamic_menu') }}">Back to Dynamic Menu Management</a>
+</body>
+</html>

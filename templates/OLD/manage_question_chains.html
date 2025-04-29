@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Question Chains</title>
+</head>
+<body>
+    <h1>Manage Question Chains</h1>
+    <a href="{{ url_for('add_question_chain') }}">Add New Question Chain</a>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>Chain ID</th>
+                <th>Chain Name</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for chain_id, chain_list in grouped_chains.items() %}
+            <tr>
+                <td colspan="3"><strong>Chain ID: {{ chain_id }}</strong></td>
+            </tr>
+            {% for chain in chain_list %}
+            <tr>
+                <td>{{ chain.chain_id }}</td>
+                <td>{{ chain.chain_name }}</td>
+                <td>
+                    <a href="{{ url_for('edit_question_chain', chain_id=chain.chain_id) }}">Edit</a> | 
+                    <a href="{{ url_for('delete_question_chain', id=chain.id) }}">Delete</a>
+                </td>
+            </tr>
+            {% endfor %}
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>

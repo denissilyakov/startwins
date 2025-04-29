@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Dynamic Menu</title>
+</head>
+<body>
+
+<h2>Add New Menu Button</h2>
+
+<form method="POST">
+    <label for="button_name">Button Name</label>
+    <input type="text" id="button_name" name="button_name" required>
+
+    <label for="button_action">Button Action</label>
+    <input type="text" id="button_action" name="button_action" required>
+
+    <label for="position">Position</label>
+    <input type="number" id="position" name="position" required>
+
+    <label for="chain_id">Chain ID (Optional)</label>
+    <input type="number" id="chain_id" name="chain_id">
+
+    <button type="submit">Add Menu Button</button>
+</form>
+
+<a href="{{ url_for('manage_dynamic_menu') }}">Back to Menu Management</a>
+
+</body>
+</html>

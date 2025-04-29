@@ -1,0 +1,41 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Управление пользователями</title>
+</head>
+
+        <body style="background: linear-gradient(to right, #cce7ff, #e6f7ff); font-family: 'Georgia', serif; color: #003366; padding: 20px;">
+            <h1 style="text-align: center; color: #003366;">Edit Page</h1>
+            <a href="{{ url_for('index') }}" style="display: inline-block; background-color: #003366; color: white; padding: 10px 20px; border-radius: 5px; text-align: center; margin-top: 30px;">Back to Main Page</a>
+            <br><br>
+        
+    <h1>Список пользователей</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Имя</th>
+                <th>Дата рождения</th>
+                <th>Пол</th>
+                <th>Знак зодиака</th>
+                <th>Восточный знак</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>{{ user.user_id }}</td>
+                <td>{{ user.name }}</td>
+                <td>{{ user.birthdate }}</td>
+                <td>{{ user.gender }}</td>
+                <td>{{ user.zodiac }}</td>
+                <td>{{ user.chinese_year }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <a href="{{ url_for('add_user') }}">Добавить пользователя</a>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Question - {{ question.question }}</title>
+    <style>
+        /* Дополнительные стили для расширения полей */
+        textarea#question, textarea#options {
+            width: 100%;    /* Ширина на всю доступную ширину */
+            height: 150px;  /* Высота больше для удобства редактирования */
+        }
+        input[type="text"], input[type="number"] {
+            width: 100%;    /* Ширина на всю доступную ширину */
+        }
+    </style>
+</head>
+
+        <body style="background: linear-gradient(to right, #cce7ff, #e6f7ff); font-family: 'Georgia', serif; color: #003366; padding: 20px;">
+            <h1 style="text-align: center; color: #003366;">Edit Page</h1>
+            <a href="{{ url_for('index') }}" style="display: inline-block; background-color: #003366; color: white; padding: 10px 20px; border-radius: 5px; text-align: center; margin-top: 30px;">Back to Main Page</a>
+            <br><br>
+        
+    <h1>Edit Question - {{ question.question }}</h1>
+
+    <!-- Форма редактирования вопроса -->
+    <form method="POST">
+        <label for="question">Question</label>
+        <textarea name="question" id="question" required>{{ question.question }}</textarea><br><br>
+
+        <label for="type">Type</label>
+        <input type="text" name="type" id="type" value="{{ question.type }}" required><br><br>
+
+        <label for="key">Key</label>
+        <input type="text" name="key" id="key" value="{{ question.key }}" required><br><br>
+
+        <label for="options">Options</label>
+        <textarea name="options" id="options">{{ question.options }}</textarea><br><br>
+
+        <label for="
+    <div class="form-group">
+        <label for="options_position">Options Position</label>
+        <input type="text" class="form-control" name="options_position" id="options_position"
+               value="{{ options_position if options_position is defined else '' }}">
+    </div>
+    chain_order">Chain Order</label>
+        <input type="number" name="
+    <div class="form-group">
+        <label for="options_position">Options Position</label>
+        <input type="text" class="form-control" name="options_position" id="options_position"
+               value="{{ options_position if options_position is defined else '' }}">
+    </div>
+    chain_order" id="
+    <div class="form-group">
+        <label for="options_position">Options Position</label>
+        <input type="text" class="form-control" name="options_position" id="options_position"
+               value="{{ options_position if options_position is defined else '' }}">
+    </div>
+    chain_order" value="{{ question.
+    <div class="form-group">
+        <label for="options_position">Options Position</label>
+        <input type="text" class="form-control" name="options_position" id="options_position"
+               value="{{ options_position if options_position is defined else '' }}">
+    </div>
+    chain_order }}" required><br><br>
+
+        <button type="submit">Save Changes</button>
+    </form>
+
+</body>
+</html>

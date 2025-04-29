@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <style>
+        body {
+            background-color: #E0F7FA;
+            font-family: 'Arial', sans-serif;
+            color: #004D40;
+        }
+        h1 {
+            color: #00796B;
+        }
+        label {
+            font-size: 16px;
+        }
+        input, textarea, button {
+            border-radius: 5px;
+            border: 1px solid #00796B;
+            padding: 10px;
+            width: 100%;
+        }
+        button {
+            background-color: #004D40;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #00796B;
+        }
+        a {
+            color: #00796B;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Dynamic Menu</title>
+</head>
+<body>
+    <h1>Manage Dynamic Menu</h1>
+    <a href="{{ url_for('add_dynamic_menu') }}">Add New Menu Button</a>
+    <table border="1">
+        <tr>
+            <th>Button Name</th>
+            <th>Button Action</th>
+            <th>Position</th>
+            <th>Menu Chain ID</th>
+            <th>Actions</th>
+        </tr>
+        {% for menu_button in menu_buttons %}
+        <tr>
+            <td>{{ menu_button.button_name }}</td>
+            <td>{{ menu_button.button_action }}</td>
+            <td>{{ menu_button.position }}</td>
+            <td>{{ menu_button.menu_chain_id }}</td>
+            <td>
+                <a href="{{ url_for('edit_dynamic_menu', menu_id=menu_button.id) }}">Edit</a> | 
+                <a href="{{ url_for('delete_dynamic_menu', menu_id=menu_button.id) }}">Delete</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <br>
+    <a href="{{ url_for('index') }}" style="display:block; text-align:center; background-color:#00796B; color:white; padding:10px; text-decoration:none; border-radius:5px;">
+        Back to Main Page
+    </a>
+</body>
+</html>

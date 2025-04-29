@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Prompt to Chain</title>
+</head>
+<body>
+
+<h1>Add Prompt to Chain</h1>
+
+<form method="POST">
+    <!-- Предзаполнение chain_p_id (уникальный идентификатор цепочки) -->
+    <input type="hidden" name="chain_p_id" value="{{ chain.chain_id }}">
+
+    <!-- Предзаполнение chain_order (максимальный существующий chain_order + 1) -->
+    <label for="chain_order">Chain Order:</label>
+    <input type="number" id="chain_order" name="chain_order" value="{{ max_chain_order + 1 }}" required><br>
+
+    <label for="prompt">Prompt:</label>
+    <textarea id="prompt" name="prompt" required></textarea><br>
+
+    <label for="tone">Tone:</label>
+    <input type="text" id="tone" name="tone"><br>
+
+    <label for="temperature">Temperature:</label>
+    <input type="number" id="temperature" name="temperature" step="0.1"><br>
+
+    <button type="submit">Add Prompt</button>
+</form>
+
+<a href="{{ url_for('edit_question_chain', chain_id=chain.chain_id) }}">Back to Question Chain</a>
+
+</body>
+</html>

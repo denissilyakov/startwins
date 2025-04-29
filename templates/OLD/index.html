@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админка</title>
+</head>
+<body>
+    <h1>Админка</h1>
+
+    <div>
+        <h2>Пользователи</h2>
+        <ul class="list-group">
+            <li class="list-group-item">
+                <a href="{{ url_for('manage_users') }}" class="list-group-item list-group-item-action">Управление пользователями</a>
+            </li>
+            <li class="list-group-item">
+                <a href="{{ url_for('add_user') }}" class="list-group-item list-group-item-action">Добавить пользователя</a>
+            </li>
+        </ul>
+    </div>
+
+    <div>
+        <h2>Цепочки вопросов</h2>
+        <ul class="list-group">
+            <li class="list-group-item">
+                <a href="{{ url_for('manage_question_chains') }}" class="list-group-item list-group-item-action">Управление цепочками вопросов</a>
+            </li>
+            <li class="list-group-item">
+                <a href="{{ url_for('add_question_chain') }}" class="list-group-item list-group-item-action">Добавить цепочку вопросов</a>
+            </li>
+        </ul>
+    </div>
+
+    <div>
+        <h2>Динамическое меню</h2>
+        <ul class="list-group">
+            <li class="list-group-item">
+                <a href="{{ url_for('manage_dynamic_menu') }}" class="list-group-item list-group-item-action">Управление динамическим меню</a>
+            </li>
+            <li class="list-group-item">
+                <a href="{{ url_for('add_dynamic_menu') }}" class="list-group-item list-group-item-action">Добавить кнопку в меню</a>
+            </li>
+        </ul>
+    </div>
+</body>
+</html>

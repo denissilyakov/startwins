@@ -1,0 +1,65 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <style>
+        body {
+            background-color: #E0F7FA;
+            font-family: 'Arial', sans-serif;
+            color: #004D40;
+        }
+        h1 {
+            color: #00796B;
+        }
+        label {
+            font-size: 16px;
+        }
+        input, textarea, button {
+            border-radius: 5px;
+            border: 1px solid #00796B;
+            padding: 10px;
+            width: 100%;
+        }
+        button {
+            background-color: #004D40;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #00796B;
+        }
+        a {
+            color: #00796B;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Menu Button</title>
+</head>
+<body>
+    <h1>Add New Menu Button</h1>
+    <form method="POST">
+        <label for="button_name">Button Name:</label>
+        <input type="text" id="button_name" name="button_name" required><br><br>
+
+        <label for="button_action">Button Action:</label>
+        <input type="text" id="button_action" name="button_action" required><br><br>
+
+        <label for="position">Position:</label>
+        <input type="number" id="position" name="position" required><br><br>
+
+        <button type="submit">Add Button</button>
+    </form>
+    <a href="{{ url_for('menu_buttons') }}">Back to Buttons</a>
+</body>
+</html>
+
+    <br>
+    <a href="{{ url_for('index') }}" style="display:block; text-align:center; background-color:#00796B; color:white; padding:10px; text-decoration:none; border-radius:5px;">
+        Back to Main Page
+    </a>
+    

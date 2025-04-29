@@ -1,0 +1,21 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit User</title>
+</head>
+<body>
+    <h1>Edit User</h1>
+    <form method="POST">
+        Name: <input type="text" name="name" value="{{ user.name }}"><br>
+        Birthdate: <input type="text" name="birthdate" value="{{ user.birthdate }}"><br>
+        Gender: <input type="text" name="gender" value="{{ user.gender }}"><br>
+        Zodiac: <input type="text" name="zodiac" value="{{ user.zodiac }}"><br>
+        Chinese Year: <input type="text" name="chinese_year" value="{{ user.chinese_year }}"><br>
+        <button type="submit">Save Changes</button>
+    </form>
+    <a href="{{ url_for('index') }}">Back to Users Management</a>
+</body>
+</html>

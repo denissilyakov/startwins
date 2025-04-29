@@ -1,0 +1,61 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <style>
+        body {
+            background-color: #E0F7FA;
+            font-family: 'Arial', sans-serif;
+            color: #004D40;
+        }
+        h1 {
+            color: #00796B;
+        }
+        label {
+            font-size: 16px;
+        }
+        input, textarea, button {
+            border-radius: 5px;
+            border: 1px solid #00796B;
+            padding: 10px;
+            width: 100%;
+        }
+        button {
+            background-color: #004D40;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #00796B;
+        }
+        a {
+            color: #00796B;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add User</title>
+</head>
+<body>
+    <h1>Add New User</h1>
+    <form method="POST">
+        Name: <input type="text" name="name"><br>
+        Birthdate: <input type="text" name="birthdate"><br>
+        Gender: <input type="text" name="gender"><br>
+        Zodiac: <input type="text" name="zodiac"><br>
+        Chinese Year: <input type="text" name="chinese_year"><br>
+        <button type="submit">Add User</button>
+    </form>
+    <a href="{{ url_for('index') }}">Back to Users Management</a>
+</body>
+</html>
+
+    <br>
+    <a href="{{ url_for('index') }}" style="display:block; text-align:center; background-color:#00796B; color:white; padding:10px; text-decoration:none; border-radius:5px;">
+        Back to Main Page
+    </a>
+    

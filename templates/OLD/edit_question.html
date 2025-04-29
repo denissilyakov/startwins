@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Question - {{ question.question }}</title>
+    <style>
+        /* Дополнительные стили для расширения полей */
+        textarea#question, textarea#options {
+            width: 100%;    /* Ширина на всю доступную ширину */
+            height: 150px;  /* Высота больше для удобства редактирования */
+        }
+        input[type="text"], input[type="number"] {
+            width: 100%;    /* Ширина на всю доступную ширину */
+        }
+    </style>
+</head>
+<body>
+    <h1>Edit Question - {{ question.question }}</h1>
+
+    <!-- Форма редактирования вопроса -->
+    <form method="POST">
+        <label for="question">Question</label>
+        <textarea name="question" id="question" required>{{ question.question }}</textarea><br><br>
+
+        <label for="type">Type</label>
+        <input type="text" name="type" id="type" value="{{ question.type }}" required><br><br>
+
+        <label for="key">Key</label>
+        <input type="text" name="key" id="key" value="{{ question.key }}" required><br><br>
+
+        <label for="options">Options</label>
+        <textarea name="options" id="options">{{ question.options }}</textarea><br><br>
+
+        <label for="chain_order">Chain Order</label>
+        <input type="number" name="chain_order" id="chain_order" value="{{ question.chain_order }}" required><br><br>
+
+        <button type="submit">Save Changes</button>
+    </form>
+
+</body>
+</html>

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <style>
+        body {
+            background-color: #E0F7FA;
+            font-family: 'Arial', sans-serif;
+            color: #004D40;
+        }
+        h1 {
+            color: #00796B;
+        }
+        label {
+            font-size: 16px;
+        }
+        input, textarea, button {
+            border-radius: 5px;
+            border: 1px solid #00796B;
+            padding: 10px;
+            width: 100%;
+        }
+        button {
+            background-color: #004D40;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #00796B;
+        }
+        a {
+            color: #00796B;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Question Chains</title>
+</head>
+<body>
+    <h1>Manage Question Chains</h1>
+    <a href="{{ url_for('add_question_chain') }}">Add New Question Chain</a>
+    <table border="1">
+        <thead>
+            <tr>
+                <th>Chain ID</th>
+                <th>Chain Name</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for chain_id, chain_list in grouped_chains.items() %}
+            <tr>
+                <td colspan="3"><strong>Chain ID: {{ chain_id }}</strong></td>
+            </tr>
+            {% for chain in chain_list %}
+            <tr>
+                <td>{{ chain.chain_id }}</td>
+                <td>{{ chain.chain_name }}</td>
+                <td>
+                    <a href="{{ url_for('edit_question_chain', chain_id=chain.chain_id) }}">Edit</a> | 
+                    <a href="{{ url_for('delete_question_chain', id=chain.id) }}">Delete</a>
+                </td>
+            </tr>
+            {% endfor %}
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
+
+    <br>
+    <a href="{{ url_for('index') }}" style="display:block; text-align:center; background-color:#00796B; color:white; padding:10px; text-decoration:none; border-radius:5px;">
+        Back to Main Page
+    </a>
+    

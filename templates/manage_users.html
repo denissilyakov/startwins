@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <style>
+        body {
+            background-color: #E0F7FA;
+            font-family: 'Arial', sans-serif;
+            color: #004D40;
+        }
+        h1 {
+            color: #00796B;
+        }
+        label {
+            font-size: 16px;
+        }
+        input, textarea, button {
+            border-radius: 5px;
+            border: 1px solid #00796B;
+            padding: 10px;
+            width: 100%;
+        }
+        button {
+            background-color: #004D40;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #00796B;
+        }
+        a {
+            color: #00796B;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление пользователями</title>
+</head>
+<body>
+    <h1>Управление пользователями</h1>
+
+    <a href="{{ url_for('add_user') }}">Добавить пользователя</a>
+
+    <ul>
+        {% for user in users %}
+        <li>
+            {{ user.name }} ({{ user.birthdate }}) 
+            <a href="{{ url_for('edit_user', user_id=user.user_id) }}">Редактировать</a> | 
+            <a href="{{ url_for('delete_user', user_id=user.user_id) }}">Удалить</a>
+        </li>
+        {% else %}
+        <p>Пользователи не найдены.</p>
+        {% endfor %}
+    </ul>
+
+    <a href="{{ url_for('index') }}">Назад в главное меню</a>
+</body>
+</html>
+    <br>
+    <a href="{{ url_for('index') }}" style="display:block; text-align:center; background-color:#00796B; color:white; padding:10px; text-decoration:none; border-radius:5px;">
+        Back to Main Page
+    </a>
+    

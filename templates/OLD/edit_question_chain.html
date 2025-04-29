@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Question Chain</title>
+</head>
+<body>
+
+<h1>Edit Question Chain</h1>
+
+<h2>Chain Name: {{ chain[0].chain_name }}</h2>
+
+<!-- Список всех вопросов в цепочке -->
+<h3>Questions in this Chain:</h3>
+<table border="1">
+    <thead>
+        <tr>
+            <th>Question</th>
+            <th>Type</th>
+            <th>Options</th>
+            <th>Order</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for question in questions %}
+        <tr>
+            <td>{{ question.question }}</td>
+            <td>{{ question.type }}</td>
+            <td>{{ question.options }}</td>
+            <td>{{ question.chain_order }}</td>
+            <td>
+                <a href="{{ url_for('edit_question', question_id=question.id) }}">Edit</a> |
+                <a href="{{ url_for('delete_question', question_id=question.id) }}">Delete</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Кнопка для добавления нового вопроса -->
+<a href="{{ url_for('add_question_to_chain', chain_id=chain_id) }}">Add New Question to this Chain</a>
+
+<h3>Prompts in this Chain:</h3>
+<table border="1">
+    <thead>
+        <tr>
+            <th>Prompt</th>
+            <th>Tone</th>
+            <th>Temperature</th>
+            <th>Order</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for prompt in chain[0].prompts %}
+        <tr>
+            <td>{{ prompt.prompt }}</td>
+            <td>{{ prompt.tone }}</td>
+            <td>{{ prompt.temperature }}</td>
+            <td>{{ prompt.chain_order }}</td>
+            <td>
+                <a href="{{ url_for('edit_prompt', chain_p_id=prompt.chain_p_id) }}">Edit</a> |
+                <a href="{{ url_for('delete_prompt', chain_p_id=prompt.chain_p_id) }}">Delete</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Кнопка для добавления нового промта -->
+<a href="{{ url_for('add_prompt_to_chain', chain_id=chain_id) }}">Add New Prompt to this Chain</a>
+
+<!-- Форма редактирования вопросов в цепочке -->
+<form method="POST">
+    {% for question in questions %}
+    <h4>Editing Question: {{ question.question }}</h4>
+    <label for="chain_name_{{ question.id }}">Chain Name</label>
+    <input type="text" id="chain_name_{{ question.id }}" name="chain_name_{{ question.id }}" value="{{ question.chain_name }}" required>
+
+    <label for="question_{{ question.id }}">Question</label>
+    <input type="text" id="question_{{ question.id }}" name="question_{{ question.id }}" value="{{ question.question }}" required>
+
+    <label for="type_{{ question.id }}">Type</label>
+    <input type="text" id="type_{{ question.id }}" name="type_{{ question.id }}" value="{{ question.type }}" required>
+
+    <label for="key_{{ question.id }}">Key</label>
+    <input type="text" id="key_{{ question.id }}" name="key_{{ question.id }}" value="{{ question.key }}" required>
+
+    <label for="options_{{ question.id }}">Options</label>
+    <textarea id="options_{{ question.id }}" name="options_{{ question.id }}">{{ question.options }}</textarea>
+
+    <label for="chain_order_{{ question.id }}">Chain Order</label>
+    <input type="number" id="chain_order_{{ question.id }}" name="chain_order_{{ question.id }}" value="{{ question.chain_order }}" required>
+    
+    <br><br>
+    {% endfor %}
+    <button type="submit">Save Changes</button>
+</form>
+
+</body>
+</html>

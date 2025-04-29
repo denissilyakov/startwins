@@ -1,0 +1,36 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Question Chains</title>
+</head>
+
+        <body style="background: linear-gradient(to right, #cce7ff, #e6f7ff); font-family: 'Georgia', serif; color: #003366; padding: 20px;">
+            <h1 style="text-align: center; color: #003366;">Edit Page</h1>
+            <a href="{{ url_for('index') }}" style="display: inline-block; background-color: #003366; color: white; padding: 10px 20px; border-radius: 5px; text-align: center; margin-top: 30px;">Back to Main Page</a>
+            <br><br>
+        
+    <h1>Manage Question Chains</h1>
+    <h2>Existing Chains</h2>
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Chain Name</th>
+            <th>Action</th>
+        </tr>
+        {% for chain in chains %}
+        <tr>
+            <td>{{ chain[0] }}</td> <!-- ID цепочки -->
+            <td>{{ chain[2] }}</td> <!-- Название цепочки -->
+            <td>
+                <a href="{{ url_for('edit_chain', chain_id=chain[0]) }}">Edit</a> <!-- Ссылка на редактирование -->
+                <a href="{{ url_for('delete_chain', chain_id=chain[0]) }}">Delete</a> <!-- Ссылка на удаление -->
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+    <a href="{{ url_for('add_chain') }}">Add New Chain</a> <!-- Ссылка на добавление новой цепочки -->
+</body>
+</html>

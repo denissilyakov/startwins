@@ -1,0 +1,29 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forecast History</title>
+</head>
+<body>
+    <h1>Forecast History</h1>
+    <table>
+        <tr>
+            <th>User ID</th>
+            <th>Forecast Date</th>
+            <th>Aspect</th>
+            <th>Forecast</th>
+        </tr>
+        {% for forecast in forecasts %}
+        <tr>
+            <td>{{ forecast[0] }}</td> <!-- user_id -->
+            <td>{{ forecast[1] }}</td> <!-- forecast_date -->
+            <td>{{ forecast[2] }}</td> <!-- aspect -->
+            <td>{{ forecast[3] }}</td> <!-- forecast_text -->
+        </tr>
+        {% endfor %}
+    </table>
+    <a href="{{ url_for('index') }}">Back to Dashboard</a>
+</body>
+</html>
