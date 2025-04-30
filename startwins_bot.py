@@ -26,7 +26,11 @@ import psycopg2
 from telegram.ext import CallbackQueryHandler
 from telegram.ext import Application
 from simple_calendar import SimpleCalendar, calendar_handler
+import os
+from dotenv import load_dotenv
 
+
+load_dotenv()
 
 # Отключаем использование системных прокси
 proxies = {
@@ -89,14 +93,11 @@ def load_static_data():
     print("✅ Статические данные успешно загружены из базы данных.")
 
 
-#Подключение к Постгрес
 def get_pg_connection():
-    return psycopg2.connect(
-        dbname="astrolog",
-        user="astrolog",
-        password="astrolog1414",
-        host="localhost"
-    )
+    db_url = os.getenv("ASTROLOG_DB")
+    if db_url is None:
+        raise ValueError("Переменная окружения ASTROLOG_DB не установлена")
+    return psycopg2.connect(db_url)
 
 # Настройка логирования
 logging.basicConfig(
@@ -1517,7 +1518,7 @@ def main():
     
     app = (
         ApplicationBuilder()
-        .token("8142997508:AAFAS4x426XZ3B0dAKx9UqsZNUKhDyklbXc")
+        .token(os.getenv("ASTROLOG_BOT"))
         .post_init(full_post_init)  # <<< ВОТ ТУТ ДОБАВЛЯЕМ
         .build()
     )
