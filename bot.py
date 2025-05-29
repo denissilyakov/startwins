@@ -1227,7 +1227,7 @@ async def generate_detailed_forecast(update: Update, context: ContextTypes.DEFAU
                                     msg = await context.bot.send_message(
                                         chat_id=update.effective_chat.id, text="…"
                                     )
-                                    delay = len(clean_para.split()) * 0.2
+                                    delay = len(clean_para.split()) * 0
                                     await asyncio.sleep(delay)
                                     await msg.edit_text(decorated)
                         buffer = parts[-1]
@@ -1238,7 +1238,7 @@ async def generate_detailed_forecast(update: Update, context: ContextTypes.DEFAU
             msg = await context.bot.send_message(
                 chat_id=update.effective_chat.id, text="…"
             )
-            delay = len(last_para.split()) * 0.2
+            delay = len(last_para.split()) * 0
             await asyncio.sleep(delay)
             await msg.edit_text(decorated)
 
