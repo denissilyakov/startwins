@@ -162,7 +162,7 @@ def get_astrology_text_for_date(
     elif mode == "model":
         return (
             f"Астрологические данные для даты {date_str}, время {time_str} (UTC{tz_offset:+}):\n"
-            f"Планеты:\n" + " | ".join(planet_info) + "\n"
+            #f"Планеты:\n" + " | ".join(planet_info) + "\n"
             f"Аспекты:\n" + (" | ".join(aspect_texts) if aspect_texts else "нет аспектов") + "\n"
             f"Дома:\n" + " | ".join(house_texts) + "\n"
             f"Северный узел: {north:.2f}° | Южный узел: {south:.2f}°"
@@ -388,7 +388,7 @@ def generate_chart_image(birthdate: str, birthtime: str, tz_offset: int, user_na
     for t in legend.get_texts():
         t.set_color("white")
 
-    ax.set_title(user_name+", это твоя натальная карта.", color='gold', fontsize=22, pad=30)
+    ax.set_title(user_name, color='gold', fontsize=22, pad=30)
 
     buf = BytesIO()
     plt.savefig(buf, format='png', bbox_inches='tight', facecolor=fig.get_facecolor())

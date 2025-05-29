@@ -1,6 +1,9 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from datetime import datetime, timedelta
 import calendar
+from telegram import ReplyKeyboardRemove
+from astrology_utils import get_zodiac_and_chinese_sign
+from astrology_module import get_astrology_text_for_date
 
 class SimpleCalendar:
     def __init__(self, min_date=None, max_date=None, mode="year_selection", center_year=None):
@@ -72,6 +75,8 @@ class SimpleCalendar:
             year_end = datetime(y, 12, 31)
             if self.is_in_range(year_start) or self.is_in_range(year_end):
                 row.append(InlineKeyboardButton(str(y), callback_data=f"calendar_year_select_{y}"))
+            else:
+                row.append(InlineKeyboardButton(" ", callback_data="ignore"))
             if i % 3 == 0:
                 keyboard.append(row)
                 row = []
@@ -85,6 +90,7 @@ class SimpleCalendar:
         ])
 
         return InlineKeyboardMarkup(keyboard)
+
 
     def build_month_selection(self, year):
         months = [
@@ -162,10 +168,23 @@ async def calendar_handler(update, context):
     data = query.data
     options_str = context.user_data.get("current_options_str", "")
     cal = get_calendar_object(options_str)
+    user_id = query.from_user.id
 
     try:
+        
         if data == "calendar_select_year":
-            await query.edit_message_reply_markup(reply_markup=cal.build_year_selection(datetime.now().year))
+            cal.mode = "year_selection"
+            selected_date = context.user_data.get("selected_date")
+            if selected_date:
+                _, _, year = selected_date.split(".")
+                center_year = int(year)
+            else:
+                center_year = datetime.now().year
+
+            await query.edit_message_reply_markup(
+                reply_markup=cal.build_year_selection(center_year)
+            )
+
 
         elif data.startswith("calendar_year_select_"):
             _, _, _, year = data.split("_")
@@ -195,31 +214,89 @@ async def calendar_handler(update, context):
                 f"Вы выбрали дату: {selected_date}",
                 reply_markup=keyboard
             )
-
+            
+            
         elif data == "calendar_final_confirm":
             selected_date = context.user_data.get("selected_date")
             if not selected_date:
                 await query.edit_message_text("Ошибка: дата не выбрана.")
                 return
 
-            query_step = context.user_data.get("question_step")
-            context.user_data["event_answers"][query_step] = selected_date
+            # ✅ Если это цепочка
+            if "chain_id" in context.user_data and "question_step" in context.user_data:
+                query_step = context.user_data["question_step"]
+                context.user_data["event_answers"][query_step] = selected_date
 
-            save_answer_to_db(
-                query.from_user.id,
-                context.user_data["chain_id"],
-                query_step,
-                selected_date,
-            )
+                save_answer_to_db(
+                    query.from_user.id,
+                    context.user_data["chain_id"],
+                    query_step,
+                    selected_date,
+                )
 
-            context.user_data["question_step"] += 1
-            return await ask_question(update, context)
+                context.user_data["question_step"] += 1
+
+                    # ✅ Если в цепочке указан BIRTHDT — вычисляем зодиаки, но НЕ трогаем профиль
+                if any(opt in context.user_data.get("current_options_str", "") for opt in ["BIRTHDT"]):
+                    zodiac, chinese = get_zodiac_and_chinese_sign(selected_date)
+                    context.user_data["bdate_zodiac"] = zodiac
+                    context.user_data["bdate_chinese"] = chinese
+                    
+                                # Получаем текст для планет, как делалось в user_wait_answer
+                if any(opt in context.user_data.get("current_options_str", "") for opt in ["DATE", "PASTDT", "BIRTHDT"]):
+                    if "planets_info_counter" not in context.user_data:
+                        context.user_data["planets_info_counter"] = 0
+                    else:
+                        context.user_data["planets_info_counter"] += 1
+
+                    planets_key = f"planets_info_{context.user_data['planets_info_counter']}"
+                    planets_info = get_astrology_text_for_date(
+                        selected_date,
+                        time_str="12:00",
+                        mode="model",
+                        tz_offset=context.user_data.get("tz_offset", 0)
+                    )
+                    context.user_data[planets_key] = planets_info
+
+                return await ask_question(update, context)
+
+            # ✅ Если это регистрация — и только регистрация
+            if "chain_id" not in context.user_data:
+                zodiac, chinese = get_zodiac_and_chinese_sign(selected_date)
+                context.user_data["birthdate"] = selected_date
+                context.user_data["zodiac"] = zodiac
+                context.user_data["chinese_year"] = chinese
+
+                save_user_data = context.bot_data["save_user_data"]
+                save_user_data(user_id, context.user_data)
+
+                await query.message.reply_text(
+                    f"Принято! Знак зодиака: {zodiac}, Восточный знак: {chinese}.",
+                    reply_markup=ReplyKeyboardRemove(),
+                )
+                await query.message.reply_text(
+                    "📍 Укажите место рождения (пример: деревня Лазурная, Конаковский район, Тверская область):"
+                )
+                return context.bot_data["ASK_BIRTHPLACE"]
+
+
+
 
         elif data.startswith("calendar_prev_years_") or data.startswith("calendar_next_years_"):
-            _, action, _, center_year = data.split("_")
-            center_year = int(center_year)
-            center_year += -15 if action == "prev" else 15
-            await query.edit_message_reply_markup(reply_markup=cal.build_year_selection(center_year))
+            _, action, _, start_year = data.split("_")
+            start_year = int(start_year)
+
+            if action == "prev":
+                new_start_year = start_year - 15
+            else:
+                new_start_year = start_year + 15
+
+            center_year = new_start_year + 7
+            cal = get_calendar_object(options_str)
+            cal.mode = "year_selection"
+            await query.edit_message_reply_markup(
+                reply_markup=cal.build_year_selection(center_year)
+            )
 
     except Exception as e:
         print(f"Ошибка в calendar_handler: {e}")
