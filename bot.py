@@ -32,14 +32,28 @@ from dotenv import load_dotenv
 from astrology_utils import (
     get_inline_questions,
     get_user_asked_inline_questions,
-    log_user_inline_question
+    log_user_inline_question,
+    handle_pre_checkout,
+    handle_successful_payment,
+    handle_invoice_callback
 )
 from astrology_utils import get_user_inline_question_texts
 from uuid import uuid4
 import httpx
+from telegram import InlineQueryResultArticle, InputTextMessageContent
+from telegram.ext import InlineQueryHandler
+from astrology_utils import update_user_balance, get_user_balance, insert_coin_transaction, add_welcome_bonus_if_needed
+from yookassa import Configuration, Payment
+import uuid
+from telegram.ext import PreCheckoutQueryHandler
+from dateutil.relativedelta import relativedelta
 
+
+# Настройка ключей ЮKassa
+Configuration.account_id = os.getenv("YOOKASSA_SHOP_ID")
+Configuration.secret_key = os.getenv("YOOKASSA_SECRET_KEY")
 load_dotenv()
-
+BOT_USERNAME = os.getenv("BOT_USERNAME")
 # Отключаем использование системных прокси
 proxies = {
     "http": None,
@@ -117,9 +131,9 @@ def create_new_inline_id() -> int:
         conn.close()
         
 
-import httpx
 
-async def generate_inline_questions_for_user(user_id: int, context, chat_id: int):
+
+async def generate_inline_questions_for_user(user_id: int, context, chat_id: int, topic: int):
     name = context.user_data.get("name", "")
     gender = context.user_data.get("gender", "")
     birthdate = context.user_data.get("birthdate", "")
@@ -136,13 +150,26 @@ async def generate_inline_questions_for_user(user_id: int, context, chat_id: int
         )
 
     planets = context.user_data.get("user_planets_info", "")
-    prompt_id = 99
-
-    previous = get_user_inline_question_texts(user_id)
+    
+    topic = int(context.user_data.get("topic"))
+    if topic ==1: 
+        prompt_id = 96
+        promt_question_theme = "направленные на изучение собственного я."
+    if topic ==2: 
+        prompt_id = 97
+        promt_question_theme = "вопросы на самореализацию в сфере любви."
+    if topic ==3: 
+        prompt_id = 98
+        promt_question_theme = "вопросы на самореализацию в сфере работы."
+    if topic ==4: 
+        prompt_id = 99
+        promt_question_theme = "вопросы на самореализацию в сфере социума."
+        
+    previous = get_user_inline_question_texts(user_id, topic)
     previous_text = "\n".join(f"- {q}" for q in previous)
 
     prompt = (
-        f"Сгенерируй 16 новых астрологических вопросов (без нумерации), которые могли бы заинтересовать пользователя, "
+        f"Сгенерируй 16 новых астрологических вопросов (без нумерации), которые могли бы заинтересовать пользователя, "+ promt_question_theme +
         f"основываясь на его личных и астрологических данных:\n\n"
         f"Имя: {name}\n"
         f"Пол: {gender}\n"
@@ -164,11 +191,11 @@ async def generate_inline_questions_for_user(user_id: int, context, chat_id: int
         "prompt": prompt,
         "stream": False,
         "temperature": 0.4,
-        "system": "Ты профессиональный астролог. Твоя задача — написать 16 вопросов без нумерации, без точек, без тире. Просто текст вопроса. Не начинай ни один вопрос с числа или маркера. Обращайся на 'ты'."
+        "system": "Ты профессиональный психолог. Твоя задача — написать 16 вопросов без нумерации, без точек, без тире. Просто текст вопроса. Не начинай ни один вопрос с числа или маркера. Обращайся на 'ты'."
     }
 
     try:
-        async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
+        async with httpx.AsyncClient(timeout=500.0, trust_env=False) as client:
             response = await client.post("http://localhost:11434/api/generate", json=payload)
             questions_text = response.json().get("response", "")
 
@@ -182,9 +209,9 @@ async def generate_inline_questions_for_user(user_id: int, context, chat_id: int
             cursor = conn.cursor()
             for index, q in enumerate(questions[:16]):
                 cursor.execute("""
-                    INSERT INTO inline_questions (inline_id, order_index, question, user_id, gender, prompt_id)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                """, (inline_id, index, q, user_id, gender, prompt_id))
+                    INSERT INTO inline_questions (inline_id, order_index, question, user_id, gender, prompt_id, topic)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (inline_id, index, q, user_id, gender, prompt_id, topic))
 
         context.user_data["current_inline_id"] = inline_id
 
@@ -322,7 +349,7 @@ async def user_wait_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if "DATE" in options_str:
             calendar = SimpleCalendar(
                 min_date=datetime.now() + timedelta(days=1),
-                max_date=None
+                max_date=datetime.now() + relativedelta(years=1)
             )
             await update.message.reply_text("📅 Выберите дату:", reply_markup=calendar.build_calendar())
             return WAIT_ANSWER
@@ -661,7 +688,105 @@ async def warm_up_model():
     except Exception as e:
         logging.error(f"Ошибка при разогреве модели: {e}")
 
+async def process_portrait_invite(start_param, user_id, bot, update, context):
+    #"""
+    #Обрабатывает инвайт-ссылку с токеном формата 'portrait_xxx'.
+    #Начисляет бонус 250 АстроКоинов пригласившему, если ссылка не была использована.
+    #"""
 
+    token = start_param.strip()
+    print("Обработка начисления бонуса")
+    
+    user_id = update.effective_user.id
+    user_data = load_user_data(user_id)
+
+
+
+
+    conn = get_pg_connection()
+    try:
+        with conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT creator_id, used FROM portrait_links WHERE token = %s",
+                    (token,)
+                )
+                row = cursor.fetchone()
+
+                if not row:
+                    return
+
+                creator_id, used = row
+
+                if used or creator_id == user_id:
+                    return
+
+                # Обновляем статус ссылки
+                cursor.execute(
+                    "UPDATE portrait_links SET used = true, used_by_user_id = %s, used_at = NOW() WHERE token = %s",
+                    (user_id, token)
+                )
+
+                if user_data and user_data.get("birthdate") and user_data.get("name") and user_data.get("birthtime"):
+                # Пользователь уже зарегистрирован — не запускаем цепочку
+                    # 📬 Уведомляем пригласившего
+                    await bot.send_message(
+                        chat_id=creator_id,
+                        text=(
+                            "🎉 Твоим приглашением воспользовался уже зарегистрированный пользователь StarTwins!\n"
+                            f"К сожалению, в таком случае бонус не предоставляется.\n"
+                            f"Но мы очень признательны тебе за пересылку приглашения. Может у тебя еще есть друзья, которые еще не с нами?"
+                        )
+                    )
+                    await update.message.reply_text("Ты прошел по ссылке с приглашением, но ты уже и так с нами, чему мы безмерно рады!🌟", 
+                                                    reply_markup=menu_keyboard)
+                    return ConversationHandler.END
+                
+                # Начисляем 100 АстроКоинов
+                bonus_amount = 100
+                update_user_balance(creator_id, bonus_amount)
+
+                # ⬇️ Записываем транзакцию
+                cursor.execute("""
+                    INSERT INTO coin_transactions (user_id, coin_amount, price_rub, package_id)
+                    VALUES (%s, %s, %s, %s)
+                """, (creator_id, bonus_amount, 0, 1))
+
+                # Получаем новый баланс
+                new_balance = get_user_balance(creator_id)
+
+    finally:
+        conn.close()
+
+    # 📬 Уведомляем пригласившего
+    await bot.send_message(
+        chat_id=creator_id,
+        text=(
+            "🎉 По твоему приглашению зарегистрировался пользователь!\n"
+            f"Начислен бонус +{bonus_amount} АстроКоинов. 💰\n"
+            f"Твой текущий баланс: {new_balance} АстроКоинов 🪙."
+        )
+    )
+    
+
+
+    #if user_data and user_data.get("birthdate") and user_data.get("name") and user_data.get("birthtime"):
+    #    # Пользователь уже зарегистрирован — сразу запускаем цепочку
+    #    context.user_data.update(user_data)
+    #    context.user_data["chain_id"] = 1
+    #    context.user_data["question_step"] = 0
+    #    context.user_data["event_answers"] = {}
+
+        # Сохраняем текущий chat_id в БД
+    #    user_data["chat_id"] = update.effective_chat.id
+    #    save_user_data(user_id, user_data)
+
+    #    return await ask_question(update, context)
+
+    # Новый пользователь — начинаем с имени
+    await update.message.reply_text("🌟 Давай познакомимся. Напиши своё имя:")
+    context.user_data["from_compat"] = True
+    return ASK_NAME
 
 # /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -671,7 +796,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         token = args[0].split("compat_")[1]
         return await handle_compat_start(update, context, token)
 
-    
+    # ✨ Обработка инвайт-ссылки "Звёздного двойника"
+    if args and args[0].startswith("portrait_"):
+        token = args[0]  # не отрезаем префикс, он нужен
+        #отладка
+        print(token)
+        return await process_portrait_invite(token, update.effective_user.id, context.bot, update, context)
     
     user_id = update.effective_user.id
     context.user_data["user_id"] = user_id
@@ -692,11 +822,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.update(user_data)
 
     # Устанавливаем значения только если уже есть имя и дата рождения (то есть не регистрация)
-    if "name" in context.user_data and "birthdate" in context.user_data:
+    if "name" in context.user_data and "birthdate" and "birthplace" in context.user_data:
         context.user_data.setdefault("question_step", 0)
         context.user_data.setdefault("event_answers", {})
-        context.user_data.setdefault("chain_id", 1)
-        context.user_data.setdefault("question_chain_id", 1)
+        #context.user_data.setdefault("chain_id", 1)
+        #context.user_data.setdefault("question_chain_id", 1)
 
 
     # Вычисляем планеты, если есть дата рождения и нет расчётов
@@ -709,7 +839,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     # Если пользователь зарегистрирован — показываем меню
-    if "name" in context.user_data and "birthdate" in context.user_data:
+    if "name" in context.user_data and "birthdate" and "birthplace" in context.user_data:
         await message.reply_text(
             "👋 Твои данные загружены успешно. Выбери действие из меню:",
             reply_markup=menu_keyboard,
@@ -718,7 +848,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Иначе — это новый пользователь, просим ввести имя
     await message.reply_text(
-        "🌟 Добро пожаловать в АстроТвинз!\n\nДавай познакомимся, напиши как тебя зовут.",
+        "🌟 Добро пожаловать в StarTwins!\n\nДавай познакомимся, напиши своё имя:",
         reply_markup=ReplyKeyboardRemove(),
     )
     return ASK_NAME
@@ -981,12 +1111,11 @@ async def astro_stages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if not buttons:
-        await update.message.reply_text("Ошибка! Нет доступных кнопок.")
+        #await update.message.reply_text("Ошибка! Нет доступных кнопок.")
         return ConversationHandler.END
 
     # Создаем клавиатуру с кнопками
     keyboard = create_dynamic_keyboard(buttons)
-
     # Отправляем клавиатуру с кнопками
     await update.message.reply_text("Выберите действие:", reply_markup=keyboard)
 
@@ -1068,6 +1197,7 @@ def create_dynamic_keyboard(buttons):
     if current_row:
         keyboard.append(current_row)
 
+    keyboard.append([KeyboardButton("📋 Главное меню")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # Функция для получения chain_id кнопки из базы данных
@@ -1178,9 +1308,10 @@ async def generate_detailed_forecast(update: Update, context: ContextTypes.DEFAU
         reply_markup=ReplyKeyboardRemove()
     )
 
-    # Получаем последние 5 записей контекста (если есть)
-    conversation_context = get_conversation_context(user_id)
-
+    # Получаем последние 5 записей контекста (если есть) временно отключено
+    #conversation_context = get_conversation_context(user_id)
+    conversation_context = '[]'
+    
     payload = {
         "model": "gemma3:latest",
         "prompt": prompt,
@@ -1224,23 +1355,29 @@ async def generate_detailed_forecast(update: Update, context: ContextTypes.DEFAU
                                     await typing_msg.edit_text(decorated)
                                     first = False
                                 else:
-                                    msg = await context.bot.send_message(
-                                        chat_id=update.effective_chat.id, text="…"
-                                    )
                                     delay = len(clean_para.split()) * 0
                                     await asyncio.sleep(delay)
-                                    await msg.edit_text(decorated)
+                                    await typing_msg.edit_text(decorated)
+                                    
+                                typing_msg = await context.bot.send_message(
+                                    chat_id=update.effective_chat.id, text="…"
+                                )
+                                    
                         buffer = parts[-1]
-
+            try:
+                await typing_msg.delete()
+            except Exception:
+                pass
         last_para = buffer.strip()
         if last_para:
             decorated = decorate_with_emojis(last_para)
-            msg = await context.bot.send_message(
-                chat_id=update.effective_chat.id, text="…"
-            )
             delay = len(last_para.split()) * 0
             await asyncio.sleep(delay)
-            await msg.edit_text(decorated)
+
+            try:
+                await typing_msg.edit_text(decorated)
+            except Exception:
+                pass  # Игнорируем ошибку, если не удалось отредактировать сообщение
 
         # Сохраняем результат в БД
         conn = get_pg_connection()
@@ -1268,6 +1405,7 @@ async def generate_detailed_forecast(update: Update, context: ContextTypes.DEFAU
                 generate_date,
             ),
         )
+        
         
         conn.commit()
         conn.close()
@@ -1391,7 +1529,7 @@ async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 mode="model",
                 tz_offset=context.user_data.get("tz_offset", 0)
             )
-
+        
         # 🔧 Сохраняем полные данные инициатора, а не только ответы
         initiator_data = {
             "name": context.user_data.get("name"),
@@ -1408,9 +1546,9 @@ async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn = get_pg_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO compatibility_requests (token, initiator_id, initiator_name, initiator_data)
-            VALUES (%s, %s, %s, %s)
-        """, (token, initiator_id, name, answers_json))
+            INSERT INTO compatibility_requests (token, initiator_id, initiator_name, initiator_data, compat_type)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (token, initiator_id, name, answers_json,'romantic'))
         conn.commit()
         conn.close()
 
@@ -1431,6 +1569,63 @@ async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_menu(update, context)
         return ConversationHandler.END
 
+    if "FRIENDCON" in raw_options:
+        
+        await message.reply_text(
+            question_text,
+            reply_markup=ReplyKeyboardMarkup([[KeyboardButton("📋 Главное меню")]], resize_keyboard=True)
+        )
+
+        token = str(uuid4())
+        initiator_id = update.effective_user.id
+        name = context.user_data.get("name", "Пользователь")
+        
+        if "user_planets_info" not in context.user_data:
+            context.user_data["user_planets_info"] = get_astrology_text_for_date(
+                context.user_data.get("birthdate"),
+                time_str=context.user_data.get("birthtime", "12:00"),
+                mode="model",
+                tz_offset=context.user_data.get("tz_offset", 0)
+            )
+        
+        # 🔧 Сохраняем полные данные инициатора, а не только ответы
+        initiator_data = {
+            "name": context.user_data.get("name"),
+            "birthdate": context.user_data.get("birthdate"),
+            "gender": context.user_data.get("gender"),
+            "zodiac": context.user_data.get("zodiac"),
+            "chinese_year": context.user_data.get("chinese_year"),
+            "user_planets_info": context.user_data.get("user_planets_info"),
+            "event_answers": context.user_data.get("event_answers", {}),
+            "chain_id": context.user_data.get("chain_id", 102)
+        }
+        answers_json = json.dumps(initiator_data, ensure_ascii=False)
+
+        conn = get_pg_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO compatibility_requests (token, initiator_id, initiator_name, initiator_data, compat_type)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (token, initiator_id, name, answers_json,'friendship'))
+        conn.commit()
+        conn.close()
+
+        bot_username = context.bot.username
+        compat_link = f"https://t.me/{bot_username}?start=compat_{token}"
+
+        text = (
+            f"💞 Пользователь StarTwins *{name}* хочет узнать, насколько вы совместимы астрологически!\n\n"
+            f"📌 Пройди короткий опрос, астрологический прогноз увидит только отправитель.\n\n"
+            f"Нажми на кнопку ниже, чтобы начать анализ:"
+        )
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔮 Пройти совместимость", url=compat_link)]
+        ])
+
+        await message.reply_text(text, reply_markup=keyboard, parse_mode='Markdown')
+        await show_menu(update, context)
+        return ConversationHandler.END
 
     
     if "INLINEQ" in raw_options:
@@ -1440,8 +1635,9 @@ async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await message.reply_text("⚠️ Неверный формат INLINEQ.")
             return ConversationHandler.END
 
-        all_questions = get_inline_questions(inline_id)
-        asked = get_user_asked_inline_questions(update.effective_user.id, inline_id)
+        topic = int(context.user_data.get("topic"))
+        all_questions = get_inline_questions(inline_id,topic)
+        asked = get_user_asked_inline_questions(update.effective_user.id, inline_id, topic)
         new_questions = [q for q in all_questions if q not in asked]
 
         if not new_questions:
@@ -1467,7 +1663,7 @@ async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         calendar = None
         if "DATE" in options_str:
-            calendar = SimpleCalendar(min_date=datetime.now() + timedelta(days=1))
+            calendar = SimpleCalendar(min_date=datetime.now() + timedelta(days=1), max_date=datetime.now() + relativedelta(years=1))
         elif "PASTDT" in options_str:
             calendar = SimpleCalendar(max_date=datetime.now() - timedelta(days=1))
         elif "BIRTHDT" in options_str:
@@ -1602,7 +1798,39 @@ async def generate_forecasts_from_chain(
                 parse_mode='Markdown',
                 reply_markup=menu_keyboard
             )       
+        user_id = update.effective_user.id
+        if add_welcome_bonus_if_needed(user_id):
+            update_user_balance(user_id,100)
+            await message.reply_text("Спасибо за регистрацию! Тебе начислен привественный бонус 100 АстроКоинов 🪙")
         
+        return ConversationHandler.END  # ❗ важный return, чтобы не шли дальше
+    
+# При анализе совместимости с контактом
+    if int(chain_id) == 103:
+        prompts = get_question_chain_prompts(102)
+        result_text = ""
+
+        for prompt, tone, temperature, _ in prompts:
+            prompt = replace_variables_in_prompt(prompt, context)
+            result_text += prompt + "\n"  # или сгенерированный ответ
+
+        await process_compatibility_result(update, context, result_text)
+        
+        # Благодарность и завершение
+        message = update.message or (update.callback_query and update.callback_query.message)        
+        if message:
+                await message.reply_text(
+                "🙏 Спасибо за участие!\n\n"
+                "🔮 Твой анализ совместимости завершён, и он уже отправлен пользователю, от которого тебе пришла ссылка.\n\n"
+                "✨ Добро пожаловать в сервис *АстроТвинз* — здесь ты можешь получить персональные прогнозы, пройти тесты и узнать больше о себе.",
+                parse_mode='Markdown',
+                reply_markup=menu_keyboard
+            )       
+        user_id = update.effective_user.id
+        
+        if add_welcome_bonus_if_needed(user_id):
+            update_user_balance(user_id,100)
+            await message.reply_text("Спасибо за регистрацию! Тебе начислен привественный бонус 100 АстроКоинов 🪙")
         
         return ConversationHandler.END  # ❗ важный return, чтобы не шли дальше
 
@@ -1693,16 +1921,28 @@ async def run_prompt_step(update, context):
             conn.commit()
             conn.close()
         
-        await update.message.reply_text(
+        user_id = update.effective_user.id
+        token = create_portrait_invite(user_id)       
+        markup = build_share_button(token)
+        await update.effective_message.reply_text(
             "🔔 Прогноз завершён! 🔔 — а хочешь узнать о себе ещё больше? ✨ "
-            "Погрузись глубже в тайны своей судьбы с приложением ✨\"Звёздный двойник\" 🪞 — "
-            "там тебя ждут новые возможности, редкие знания и расширенная астрологическая картина!",
-            reply_markup=menu_keyboard
+            "Пригласи своего друга зарегистрироваться в сервисе ✨\"Звёздный двойник\" 🪞 и получи 100 АстроКоинов 🪙 "
+            "Используй их, например, в фунции \"🌠 Задай свой вопрос\" и найди новые области своего развития и самопознания.",
+            reply_markup=markup
         )
+        
+        await update.effective_message.reply_text(
+            "Ты готов продолжить погружение во Вселенную? Выбери пункт меню:",
+            reply_markup=menu_keyboard,
+        )
+        
         return ConversationHandler.END
 
     prompt, tone, temperature, _ = prompts.pop(0)
-
+    
+    #отладка
+    print("run_prompts "+str(prompt))
+    
     async def do_forecast():
         await generate_detailed_forecast(update, context, prompt, tone, temperature)
         await run_prompt_step(update, context)  # запускаем следующий
@@ -1717,6 +1957,25 @@ async def run_prompt_step(update, context):
         return await do_forecast()
 
     return await confirm_tariff_and_generate(update, context, wrapped_forecast)
+
+#Функция пригласи друга
+async def inlinequery(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print(f"[inlinequery] получен запрос: {update.inline_query.query}")
+    query = update.inline_query.query
+    if query.startswith("portrait_"):
+        invite_link = f"https://t.me/{BOT_USERNAME}?start={query}"
+        results = [
+            InlineQueryResultArticle(
+                id=query,
+                title="Пригласи друга в Звёздного двойника 🌟",
+                input_message_content=InputTextMessageContent(
+                f"🌠 Исследуй себя и найди своего звёздного двойника в истории\nЖми 👉 {invite_link}"
+                ),
+                description="Нажми, чтобы отправить другу приглашение"
+            )
+        ]
+        await update.inline_query.answer(results, cache_time=1)
+
 
 
 def replace_variables_in_prompt(prompt, context):
@@ -2014,14 +2273,19 @@ async def get_birthtime(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.get("name"+", это твоя натальная карта.", "")
     )
     await message.reply_photo(photo=buf, caption="🌌 Твоя натальная карта")
-
+    context.user_data["chat_id"] = update.effective_chat.id
     save_user_data(user_id, context.user_data)
+
 
     if context.user_data.get("compat_chain_id"):
         context.user_data["chain_id"] = context.user_data.pop("compat_chain_id")
         context.user_data["question_step"] = 0
         context.user_data["event_answers"] = {}
         return await ask_question(update, context)
+
+    if add_welcome_bonus_if_needed(user_id):
+        update_user_balance(user_id,100)
+        await message.reply_text("Спасибо за регистрацию! Тебе начислен привественный бонус 100 АстроКоинов 🪙")
 
     return ConversationHandler.END
 
@@ -2146,49 +2410,76 @@ async def full_post_init(application):
     await send_start_on_launch(application)
 
 async def ask_star_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["forecast_date"] = ""
+    keyboard = [
+        [InlineKeyboardButton("🧘 О себе", callback_data="theme::1")],
+        [InlineKeyboardButton("💖 Любовь", callback_data="theme::2")],
+        [InlineKeyboardButton("💼 Работа", callback_data="theme::3")],
+        [InlineKeyboardButton("🌐 Социум", callback_data="theme::4")],
+    ]
+    await update.message.reply_text(
+        "🧭 Выбери тематику вопроса:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )  
+    
+async def handle_question_theme_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    topic = int(query.data.split("::")[1])
+    context.user_data["topic"] = topic   
     user_id = update.effective_user.id
     gender = context.user_data.get("gender", "")
     context.user_data["button_id"] = 99
-    from astrology_utils import get_user_asked_inline_questions, get_inline_questions
+
 
     conn = get_pg_connection()
     cursor = conn.cursor()
     cursor.execute("""
         SELECT DISTINCT inline_id FROM inline_questions
-        WHERE user_id = %s
+        WHERE user_id = %s AND topic = %s
         ORDER BY inline_id DESC LIMIT 1
-    """, (user_id,))
+    """, (user_id, topic))
     row = cursor.fetchone()
     conn.close()
+
 
     inline_id = row[0] if row else None
 
     if inline_id:
-        all_questions = get_inline_questions(inline_id)
-        asked = get_user_asked_inline_questions(user_id, inline_id)
+        all_questions = get_inline_questions(inline_id,topic)
+        asked = get_user_asked_inline_questions(user_id, inline_id, topic)
         new_questions = [q for q in all_questions if q not in asked]
     else:
         new_questions = []
 
     if len(new_questions) <= 8:
-        await generate_inline_questions_for_user(user_id, context, chat_id=update.effective_chat.id)
+        chat_id=update.effective_chat.id
+        await generate_inline_questions_for_user(user_id, context, chat_id, topic)
         inline_id = context.user_data.get("current_inline_id")
-        all_questions = get_inline_questions(inline_id)
-        asked = get_user_asked_inline_questions(user_id, inline_id)
+        topic = int(query.data.split("::")[1])
+        all_questions = get_inline_questions(inline_id,topic)
+        asked = get_user_asked_inline_questions(user_id, inline_id, topic)
         new_questions = [q for q in all_questions if q not in asked]
 
     context.user_data["inline_question_page"] = 0
     context.user_data["inline_questions_available"] = new_questions
     context.user_data["current_inline_id"] = inline_id
-
+    topic = int(context.user_data.get("topic"))
+    
     return await show_next_inline_questions(update, context)
 
 async def show_next_inline_questions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message or update.callback_query.message
 
     inline_id = context.user_data['current_inline_id']
-    all_questions = get_inline_questions(inline_id)
-    asked = get_user_asked_inline_questions(update.effective_user.id, inline_id)
+    topic = int(context.user_data.get("topic"))
+    
+    #отладка
+    print("show_next_inline_questions, inline_id:" + str(inline_id), " topic:" + str(topic))
+    
+    all_questions = get_inline_questions(inline_id,topic)
+    asked = get_user_asked_inline_questions(update.effective_user.id, inline_id, topic)
     new_questions = [q for q in all_questions if q not in asked]
 
     # получаем реальные order_index
@@ -2244,17 +2535,17 @@ async def handle_inline_button_forecast(update: Update, context: ContextTypes.DE
     _, inline_id_str, index_str = query.data.split("::")
     inline_id = int(inline_id_str)
     question_index = int(index_str)
-
-    all_questions = get_inline_questions(inline_id)
+    topic = int(context.user_data.get("topic"))
+    all_questions = get_inline_questions(inline_id,topic)
     if question_index >= len(all_questions):
         await query.message.reply_text("⚠️ Ошибка: вопрос не найден.")
         return
 
     question_text = all_questions[question_index]
-    log_user_inline_question(update.effective_user.id, inline_id, question_text)
-
+    log_user_inline_question(update.effective_user.id, inline_id, question_text, topic)
     context.user_data["INLINEQ"] = question_text
-
+    
+    
 
     conn = get_pg_connection()
     cursor = conn.cursor()
@@ -2271,41 +2562,61 @@ async def handle_inline_button_forecast(update: Update, context: ContextTypes.DE
         return
 
     prompt_id = row[0]
-
+    context.user_data["chain_id"] = prompt_id
+    
+    logging.info("🔁 Начинаем generate_forecasts_from_chain")
+    print(str(context.user_data["chain_id"]))
+    await generate_forecasts_from_chain(update, context)
+    logging.info("✅ Завершена generate_forecasts_from_chain")
     # Загружаем цепочку prompt-ов
-    prompts = get_question_chain_prompts(prompt_id)
+    #prompts = get_question_chain_prompts(prompt_id)
 
-    print(f"👉 prompt_id: {prompt_id}")
-    print(f"👉 question_text: {question_text}")
-    print(f"👉 prompts: {prompts}")
+    #print(f"👉 prompt_id: {prompt_id}")
+    #print(f"👉 question_text: {question_text}")
+    #print(f"👉 prompts: {prompts}")
 
     
-    for prompt, tone, temperature, _ in prompts:
-        updated_prompt = replace_variables_in_prompt(prompt, context)
-        print(f"🧪 Генерация прогноза по prompt: {prompt}")
+    #for prompt, tone, temperature, _ in prompts:
+        #updated_prompt = replace_variables_in_prompt(prompt, context)
+        #print(f"🧪 Генерация прогноза по prompt: {prompt}")
 
-        async def do_inline_forecast():
-            await generate_detailed_forecast(
-                update, context,
-                prompt=updated_prompt,
-                tone=tone,
-                temperature=temperature
-            )
-            await query.message.reply_text(
-                "🔔 Прогноз завершён! Хочешь узнать о себе ещё больше? ✨ "
-                "Погрузись глубже в свою натальную карту через ✨ «Звёздный двойник» 🪞!",
-                reply_markup=menu_keyboard
-    )
+        #async def do_inline_forecast():
+        #    await generate_detailed_forecast(
+        #        update, context,
+        #        prompt=updated_prompt,
+        #        tone=tone,
+        #        temperature=temperature
+        #   )
+#            await query.message.reply_text(
+#                "🔔 Прогноз завершён! Хочешь узнать о себе ещё больше? ✨ "
+#                "Погрузись глубже в свою натальную карту через ✨ «Звёздный двойник» 🪞!",
+#                reply_markup=menu_keyboard
+#            )
+
+    #user_id = update.effective_user.id
+    #token = create_portrait_invite(user_id)       
+    #markup = build_share_button(token)
+    #await query.message.reply_text(
+    #            "🔔 Прогноз завершён! 🔔 — а хочешь узнать о себе ещё больше? ✨ "
+    #            "Пригласи своего друга зарегистрироваться в сервисе ✨\"Звёздный двойник\" 🪞 и получи 100 АстроКоинов 🪙 "
+    #            "Используй их, например, в фунции \"🌠 Задай свой вопрос\" и найди новые области своего развития и самопознания.",
+    #            reply_markup=markup
+    #        )
+            
+    #await query.message.reply_text(
+    #            "Ты готов продолжить погружение во Вселенную? Выбери пункт меню:",
+    #            reply_markup=menu_keyboard,
+    #        )
 
 
-        await confirm_tariff_and_generate(update, context, do_inline_forecast)
+    #await confirm_tariff_and_generate(update, context, do_inline_forecast)
 
     return ConversationHandler.END
 
 async def handle_compat_start(update: Update, context: ContextTypes.DEFAULT_TYPE, token: str):
     conn = get_pg_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT initiator_name FROM compatibility_requests WHERE token = %s", (token,))
+    cursor.execute("SELECT initiator_name, compat_type FROM compatibility_requests WHERE token = %s", (token,))
     row = cursor.fetchone()
     conn.close()
 
@@ -2313,15 +2624,28 @@ async def handle_compat_start(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("⚠️ Ссылка недействительна.")
         return ConversationHandler.END
 
-    initiator_name = row[0] or "Пользователь"
-    await update.message.reply_text(
-        f"💫 {initiator_name} приглашает тебя пройти анализ совместимости!\n"
-        f"📋 Ответь на вопросы — результат увидит только он.",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    initiator_name, compat_type = row
+    initiator_name = initiator_name or "Пользователь"
+    compat_type = compat_type or "romantic"
+
+    # Определяем, какой chain_id запустить в зависимости от типа совместимости
+    if compat_type == "friendship":
+        compat_chain_id = 103
+        invite_text = (
+            f"{initiator_name} приглашает тебя пройти астрологический анализ совместимости!\n"
+            f"📋 Ответь на вопросы, ответы не увидит инициатор, ему будут предоставлен только результатат анализа."
+        )
+    else:
+        compat_chain_id = 101
+        invite_text = (
+            f"{initiator_name} приглашает тебя пройти астрологический анализ совместимости!\n"
+            f"📋 Ответь на вопросы, ответы не увидит инициатор, ему будут предоставлен только результатат анализа."
+        )
+
+    await update.message.reply_text(invite_text, reply_markup=ReplyKeyboardRemove())
 
     context.user_data["compat_token"] = token
-    context.user_data["compat_chain_id"] = 101
+    context.user_data["compat_chain_id"] = compat_chain_id
 
     user_id = update.effective_user.id
     user_data = load_user_data(user_id)
@@ -2329,22 +2653,21 @@ async def handle_compat_start(update: Update, context: ContextTypes.DEFAULT_TYPE
     if user_data and user_data.get("birthdate") and user_data.get("name"):
         # Пользователь уже зарегистрирован — сразу запускаем цепочку
         context.user_data.update(user_data)
-        context.user_data["chain_id"] = 101
+        context.user_data["chain_id"] = compat_chain_id
         context.user_data["question_step"] = 0
         context.user_data["event_answers"] = {}
-        
+
         # Сохраняем текущий chat_id в БД
         user_data["chat_id"] = update.effective_chat.id
         save_user_data(user_id, user_data)
-        
+
         return await ask_question(update, context)
 
     # Новый пользователь — начинаем с имени
-    await update.message.reply_text(
-        "🌟 Давай познакомимся. Напиши, как тебя зовут:"
-    )
+    await update.message.reply_text("🌟 Давай познакомимся. Напиши своё имя:")
     context.user_data["from_compat"] = True
     return ASK_NAME
+
 
 async def process_compatibility_result(update, context, result_text):
     token = context.user_data.get("compat_token")
@@ -2399,15 +2722,35 @@ async def handle_show_compat_result(update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     token = query.data.split("::")[1]
+    
+        # Получаем тип совместимости
+    conn = get_pg_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT compat_type, initiator_id FROM compatibility_requests WHERE token = %s", (token,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        await query.message.reply_text("⚠️ Данные по совместимости не найдены.")
+        return ConversationHandler.END
+
+    compat_type, initiator_id = row
+    compat_type = compat_type or "romantic"
 
     await query.message.reply_text("🔮 Формирую сообщение, будет готово через несколько секунд...")
 
     # Очищаем контекст и указываем токен совместимости
-    context.user_data.clear()
+    #context.user_data.clear() -- временно закоментированно 
     context.user_data["compat_token"] = token
 
+    # Определяем prompt цепочку
+    if compat_type == "friendship":
+        prompt_chain_id = 102
+    else:
+        prompt_chain_id = 100
+
     # Генерация через встроенную функцию (внутри будет вызвана load_compat_variables)
-    prompts = get_question_chain_prompts(100)
+    prompts = get_question_chain_prompts(prompt_chain_id)
     for prompt, tone, temperature, _ in prompts:
         await generate_detailed_forecast(update, context, prompt, tone, temperature)
 
@@ -2465,15 +2808,15 @@ def load_compat_variables(context, token):
             context.user_data[f"responder_a_{i}"] = responder_answers.get(str(i)) or responder_answers.get(i, "")
 
 async def handle_star_twin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    buttons = get_dynamic_menu_buttons(6)
+    #buttons = get_dynamic_menu_buttons(6)
 
-    if not buttons:
-        await update.message.reply_text("⚠️ Нет доступных кнопок для звёздного двойника.")
-        return ConversationHandler.END
+    #if not buttons:
+    #    await update.message.reply_text("⚠️ Нет доступных кнопок для звёздного двойника.")
+    #    return ConversationHandler.END
 
-    keyboard = create_dynamic_keyboard(buttons)
+    #keyboard = create_dynamic_keyboard(buttons)
 
-    await update.message.reply_text("🪞 Выбери тему для звёздного анализа:", reply_markup=keyboard)
+    await update.message.reply_text("🪞 Извините, но рубрика Звёздный Двойник находится в разработке.. 🪞", reply_markup=menu_keyboard)
     return ConversationHandler.END
 
 # Новый callback для "Подписка и баланс"
@@ -2483,10 +2826,11 @@ async def show_balance_and_subscription(update: Update, context: ContextTypes.DE
     balance = get_user_balance(user_id)
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💳 Пополнить АстроКоины 🪙", callback_data="topup_coins")]
+        [InlineKeyboardButton("💳 Пополнить АстроКоины 🪙", callback_data="topup_coins")],
+        [InlineKeyboardButton("🧾 История транзакций", callback_data='payment_history')]
     ])
     await update.message.reply_text(
-        f"💰 Ваш текущий баланс: {balance} АстроКоинов 🪙",
+        f"💰 Твой текущий баланс: {balance} АстроКоинов 🪙",
         reply_markup=keyboard
     )
 
@@ -2497,7 +2841,7 @@ async def handle_topup_coins(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     conn = get_pg_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, coin_amount, price_rub, description FROM astrocoin_packages ORDER BY coin_amount")
+    cursor.execute("SELECT id, coin_amount, price_rub, description FROM astrocoin_packages WHERE id < 100 ORDER BY coin_amount")
     packages = cursor.fetchall()
     conn.close()
 
@@ -2511,7 +2855,7 @@ async def handle_topup_coins(update: Update, context: ContextTypes.DEFAULT_TYPE)
     for package_id, coin_amount, price_rub, description in packages:
         text_lines.append(f"{description} — *{price_rub} ₽*")
         buttons.append([
-            InlineKeyboardButton(f"Выбрать {coin_amount} 🪙", callback_data=f"buy_package::{package_id}")
+            InlineKeyboardButton(f"Выбрать {coin_amount} 🪙", callback_data=f"invoice::{package_id}")
         ])
 
     text_lines.append("\nПосле выбора ты сможешь оплатить через Telegram.")
@@ -2523,6 +2867,47 @@ async def handle_topup_coins(update: Update, context: ContextTypes.DEFAULT_TYPE)
         parse_mode="Markdown"
     )
 
+#История оплат
+async def handle_payment_history(update, context):
+    query = update.callback_query
+    user_id = query.from_user.id
+
+    conn = get_pg_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT coin_amount, price_rub, timestamp, description
+        FROM coin_transactions
+        WHERE user_id = %s
+        ORDER BY timestamp DESC
+        LIMIT 20
+    """, (user_id,))
+    rows = cur.fetchall()
+    conn.close()
+
+    if not rows:
+        text = "🧾 История транзакций пуста."
+    else:
+        text = "🧾 <b>История транзакций</b>:\n\n"
+            
+        for coin_amount, price_rub, timestamp, description in rows:
+            dt = timestamp.strftime("%d.%m.%Y %H:%M")
+
+            if coin_amount < 0:
+                text_line = f" Списание {dt} — <b>{coin_amount} АстроКоинов</b>. {description}. \n"
+            else:
+                text_line = f" Пополнение {dt} — <b>+{coin_amount} АстроКоинов</b> за <b>{price_rub}₽</b>. \n"
+
+            text += text_line
+
+
+    await query.edit_message_text(
+        text=text,
+        parse_mode='HTML',
+        reply_markup=await show_menu(update, context)
+    )
+
+    return ConversationHandler.END
 
 async def confirm_tariff_and_generate(update, context, next_step):
     from astrology_utils import get_generation_cost, get_user_balance
@@ -2560,7 +2945,7 @@ async def confirm_tariff_and_generate(update, context, next_step):
     context.user_data["__tariff_cost"] = cost
 
     await message.reply_text(
-        f"💸 Стоимость генерации: {cost} АстроКоинов 🪙\nВаш баланс: {balance}",
+        f"💸 С баланса спишется: {cost} АстроКоинов 🪙\nВаш баланс: {balance}",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ Продолжить", callback_data="confirm_tariff_ok")],
             [InlineKeyboardButton("📋 Главное меню", callback_data="/start")]
@@ -2571,21 +2956,25 @@ async def confirm_tariff_and_generate(update, context, next_step):
 
 
 async def handle_confirm_tariff_ok(update, context):
-    from astrology_utils import update_user_balance
+
 
     user_id = update.effective_user.id
     cost = context.user_data.pop("__tariff_cost", 0)
     update_user_balance(user_id, -cost)
-
+    button_id = context.user_data.get("button_id", 0)
+    
+    insert_coin_transaction(user_id, -cost, 0, package_id=103, description="ID услуги: "+str(button_id))
+    
     callback = context.user_data.pop("__next_step", None)
     if callback:
         await callback()
     else:
         await update.callback_query.message.reply_text("⚠️ Что-то пошло не так.")
         
-async def handle_buy_package(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from astrology_utils import top_up_balance, get_user_balance
 
+
+async def handle_buy_package(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    
     query = update.callback_query
     await query.answer()
 
@@ -2608,33 +2997,56 @@ async def handle_buy_package(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     coin_amount, price_rub = row
-
-    # Эмуляция успешной оплаты
     user_id = update.effective_user.id
-    top_up_balance(user_id, amount=coin_amount)
-    new_balance = get_user_balance(user_id)
-    
-    # ⬇️ Записываем транзакцию
-    conn = get_pg_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO coin_transactions (user_id, coin_amount, price_rub, package_id)
-        VALUES (%s, %s, %s, %s)
-    """, (user_id, coin_amount, price_rub, package_id))
-    conn.commit()
-    conn.close()
 
-    await query.message.reply_text(
-        f"🎉 Успешно! Вы получили *{coin_amount} АстроКоинов 🪙* за *{price_rub} ₽*.\n"
-        f"💰 Новый баланс: {new_balance} АстроКоинов. 🪙",
-        parse_mode="Markdown",
-        reply_markup=menu_keyboard
-    )
+    # Создание платежа
+    try:
+        payment = Payment.create({
+            "amount": {
+                "value": f"{price_rub:.2f}",
+                "currency": "RUB"
+            },
+            "confirmation": {
+                "type": "redirect",
+                "return_url": f"https://t.me/{context.bot.username}?start=thank_you"
+            },
+            "capture": True,
+            "description": f"Пополнение {coin_amount} АстроКоинов (user_id={user_id})",
+            "metadata": {
+                "user_id": str(user_id),
+                "coin_amount": str(coin_amount),
+                "package_id": str(package_id)
+            }
+        }, uuid.uuid4())
+
+        payment_url = payment.confirmation.confirmation_url
+
+        # Сохраняем для последующей сверки в вебхуке
+        conn = get_pg_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO pending_payments (payment_id, user_id, coin_amount, price_rub, package_id)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (payment.id, user_id, coin_amount, price_rub, package_id))
+        conn.commit()
+        conn.close()
+
+        await query.message.reply_text(
+            f"💳 Для пополнения на *{coin_amount} АстроКоинов* перейдите по ссылке ниже:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("Оплатить через ЮKassa", url=payment_url)]
+            ])
+        )
+
+    except Exception as e:
+        await query.message.reply_text("❌ Не удалось создать платёж. Попробуйте позже.")
+        print(f"[ЮKassa] Ошибка создания платежа: {e}")
+
 
 
 # Запуск
 def main():
-    
     
     load_static_data()  # <--- Загружаем все константы из БД
     
@@ -2648,7 +3060,7 @@ def main():
         .concurrent_updates(True)
         .post_init(full_post_init)  # <<< ВОТ ТУТ ДОБАВЛЯЕМ
         .build()
-    )
+    ) 
     
     # Сохраняем функции в bot_data для календаря
     app.bot_data["save_answer_to_db"] = save_answer_to_db
@@ -2733,6 +3145,12 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_topup_coins, pattern="^topup_coins$"))
     app.add_handler(CallbackQueryHandler(handle_confirm_tariff_ok, pattern="^confirm_tariff_ok$"))
     app.add_handler(CallbackQueryHandler(handle_buy_package, pattern="^buy_package::"))
+    app.add_handler(InlineQueryHandler(inlinequery))
+    app.add_handler(CallbackQueryHandler(handle_question_theme_choice, pattern="^theme::"))
+    app.add_handler(CallbackQueryHandler(handle_payment_history, pattern="^payment_history$"))
+    app.add_handler(CallbackQueryHandler(handle_invoice_callback, pattern="^invoice::"))
+    app.add_handler(PreCheckoutQueryHandler(handle_pre_checkout))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
 
     
     app.run_polling()
