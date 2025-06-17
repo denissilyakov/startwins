@@ -1,0 +1,19 @@
+id,category_code,factor_type,factor_name,weight
+1,inner_world,planet,Луна,2
+2,inner_world,planet,Нептун,1.5
+3,inner_world,house,Дом 4,1.5
+4,inner_world,house,Дом 12,1.5
+5,love,planet,Венера,2
+6,love,planet,Марс,1.5
+7,love,planet,Луна,1
+8,love,house,Дом 5,1.5
+9,love,house,Дом 7,1.5
+10,work,planet,Солнце,1.5
+11,work,planet,Меркурий,1.5
+12,work,planet,Сатурн,2
+13,work,house,Дом 6,1.5
+14,work,house,Дом 10,1.5
+15,society,planet,Юпитер,1.5
+16,society,planet,Уран,1.5
+17,society,planet,Асцендент,1.5
+18,society,house,Дом 11,2
