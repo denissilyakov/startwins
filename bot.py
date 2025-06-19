@@ -3,7 +3,7 @@
 
 # In[ ]:
 
-from astrology_module import get_astrology_text_for_date
+from astrology_module import get_astrology_text_for_date, save_user_astrology
 from invite_links import create_portrait_invite, build_share_button
 import asyncio
 import json
@@ -183,7 +183,8 @@ async def generate_inline_questions_for_user(user_id: int, context, chat_id: int
 
     await context.bot.send_message(
         chat_id=chat_id,
-        text="🌌 Подожди немного… Формируются уникальные вопросы по твоей натальной карте…"
+        text="🌌 Подожди немного… Формируются уникальные вопросы по твоей натальной карте…" ,
+        reply_markup=ReplyKeyboardRemove()
     )
 
     payload = {
@@ -866,7 +867,7 @@ async def reset_user_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Ответ пользователю
     await message.reply_text(
-        "⚠️ Ты уверен, что хочешь изменить личные данные?\nВся история общения будет удалена.",
+        "⚠️ Ты уверен, что хочешь изменить личные данные?\nВся история общения будет удалена, баланс АстроКоинов будет обнулён.",
         reply_markup=ReplyKeyboardMarkup(
             [[KeyboardButton("Уверен")], [KeyboardButton("Отменить")]],
             resize_keyboard=True,
@@ -899,7 +900,7 @@ async def confirm_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["chat_id"] = update.effective_chat.id
 
         await update.message.reply_text(
-            "🗑️ Все данные удалены, включая твои вопросы. Введи своё имя:",
+            "🗑️ Все данные удалены. Введи своё имя:",
             reply_markup=ReplyKeyboardRemove()
         )
         return ASK_NAME
@@ -1027,7 +1028,7 @@ async def forecast_tomorrow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tomorrow = datetime.now() + timedelta(days=1)
     context.user_data["forecast_date"] = tomorrow.strftime("%d.%m.%Y")
     context.user_data["chain_id"] = 10
-    context.user_data["button_id"] = 0
+    context.user_data["button_id"] = 100
     # Начинаем задавать вопросы, начиная с первого
     context.user_data["question_step"] = 0  # Сохраняем шаг для начала с первого вопроса
     return await ask_question(update, context)  # Запускаем цепочку вопросов
@@ -1927,7 +1928,7 @@ async def run_prompt_step(update, context):
         await update.effective_message.reply_text(
             "🔔 Прогноз завершён! 🔔 — а хочешь узнать о себе ещё больше? ✨ "
             "Пригласи своего друга зарегистрироваться в сервисе ✨\"Звёздный двойник\" 🪞 и получи 100 АстроКоинов 🪙 "
-            "Используй их, например, в фунции \"🌠 Задай свой вопрос\" и найди новые области своего развития и самопознания.",
+            "Используй их, например, в фунции \"📅Прогноз на событие\" чтобы узнать, какой образ подойдёт для важного дня.",
             reply_markup=markup
         )
         
@@ -2028,6 +2029,7 @@ def replace_variables_in_prompt(prompt, context):
         "{bdate_chinese}": context.user_data.get("bdate_chinese", ""),
         "{user_planets_info}": context.user_data.get("user_planets_info", ""),
         "{INLINEQ}": str(context.user_data.get("INLINEQ") or ""),
+        "{currentdt}": datetime.now().strftime("%d.%m.%Y")
     }
 
     # --- Подставляем ТОЛЬКО если явно задано как регистрация ---
@@ -2254,28 +2256,33 @@ async def get_birthtime(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await message.reply_text(
         f"Принято. Время рождения: {birthtime}",
-        reply_markup=menu_keyboard
+        reply_markup=ReplyKeyboardRemove()
     )
 
-    planet_text = get_astrology_text_for_date(
+    context.user_data["user_planets_info"] = get_astrology_text_for_date(
         context.user_data["birthdate"],
-        time_str=birthtime,
+        time_str=context.user_data["birthtime"],
         mode="pretty",
         tz_offset=context.user_data.get("tz_offset", 0)
     )
-    await message.reply_text(f"Карта планет: {planet_text}")
 
-    await message.reply_text("Идет подготовка натальной карты, подождите пожалуйста несколько секунд...")
     buf = generate_chart_image(
         context.user_data["birthdate"],
         birthtime,
         context.user_data.get("tz_offset", 0),
-        context.user_data.get("name"+", это твоя натальная карта.", "")
+        context.user_data.get("name", "") + ", это твоя натальная карта."
     )
-    await message.reply_photo(photo=buf, caption="🌌 Твоя натальная карта")
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔍 Расшифровка натальной карты", callback_data="show_planet_info")]
+    ])
+
+    await message.reply_photo(photo=buf, caption="🌌 Твоя натальная карта",
+        reply_markup=keyboard)
+
     context.user_data["chat_id"] = update.effective_chat.id
     save_user_data(user_id, context.user_data)
-
+    save_user_astrology(user_id, context.user_data["birthdate"], birthtime, context.user_data.get("tz_offset", 0))
 
     if context.user_data.get("compat_chain_id"):
         context.user_data["chain_id"] = context.user_data.pop("compat_chain_id")
@@ -2285,7 +2292,9 @@ async def get_birthtime(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if add_welcome_bonus_if_needed(user_id):
         update_user_balance(user_id,100)
-        await message.reply_text("Спасибо за регистрацию! Тебе начислен привественный бонус 100 АстроКоинов 🪙")
+        await message.reply_text("Спасибо за регистрацию! Тебе начислен привественный бонус 100 АстроКоинов 🪙", reply_markup=menu_keyboard)
+    else:
+        await message.reply_text("Рады нашей встрече! ✨💫🤗 Выбери пункт в меню:", reply_markup=menu_keyboard)
 
     return ConversationHandler.END
 
@@ -2312,7 +2321,7 @@ async def setup(application):
 async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🆘 Ты можешь задать любой вопрос или сообщить о проблеме в телеграмм чате «Звездный двойник».\n"
-        "Наша команда незамедлительно поможет тебе."
+        "Жми здесь: https://t.me/StarTwins_techsupport_bot . Наша команда незамедлительно поможет тебе."
     )
 
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2808,16 +2817,108 @@ def load_compat_variables(context, token):
             context.user_data[f"responder_a_{i}"] = responder_answers.get(str(i)) or responder_answers.get(i, "")
 
 async def handle_star_twin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    #buttons = get_dynamic_menu_buttons(6)
+    from astrology_module import calculate_twins_for_all_categories
 
-    #if not buttons:
-    #    await update.message.reply_text("⚠️ Нет доступных кнопок для звёздного двойника.")
-    #    return ConversationHandler.END
+    user_id = update.effective_user.id
+    conn = get_pg_connection()
+    cursor = conn.cursor()
 
-    #keyboard = create_dynamic_keyboard(buttons)
+    # Получаем пол пользователя
+    user_gender = context.user_data.get("gender", "")
+    user_gender_ru = "мужчина" if user_gender == "мужской" else "женщина"
 
-    await update.message.reply_text("🪞 Извините, но рубрика Звёздный Двойник находится в разработке.. 🪞", reply_markup=menu_keyboard)
-    return ConversationHandler.END
+    # Проверяем, есть ли уже двойники
+    cursor.execute("SELECT COUNT(*) FROM astro_twins WHERE user_id = %s", (user_id,))
+    count = cursor.fetchone()[0]
+    cursor.close()
+    conn.close()
+
+    if count == 0:
+        await update.message.reply_text(
+            "Подбираю звёздных двойников. Пожалуйста, немного подождите, это займёт несколько минут...",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        await calculate_twins_for_all_categories(user_id, user_gender_ru)
+
+    # Список категорий для инлайн-кнопок
+    conn = get_pg_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DISTINCT c.code, c.name
+        FROM astro_twins at
+        JOIN astro_twin_categories c ON at.twin_category_id = c.id
+        WHERE at.user_id = %s
+    """, (user_id,))
+
+    categories = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    if not categories:
+        await update.message.reply_text("Не удалось найти звёздных двойников.")
+        return
+
+    # Эмодзи по категориям
+    emoji_map = {
+        "inner_world": "🧘",
+        "love": "💘",
+        "work": "💼",
+        "society": "🫂"
+    }
+
+    # Создание инлайн-клавиатуры с категориями и эмодзи
+    keyboard = [
+        [InlineKeyboardButton(f"{emoji_map.get(cat_code, '')} {cat_name}", callback_data=f"show_twins_{cat_code}")]
+        for cat_code, cat_name in categories
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "🌟 Выбери категорию, чтобы посмотреть звёздных двойников 🔮",
+        reply_markup=reply_markup
+    )
+
+async def show_twins_by_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    category_code = query.data.replace("show_twins_", "")
+    user_id = update.effective_user.id
+
+    conn = get_pg_connection()
+    cursor = conn.cursor()
+
+    # Получаем имя категории
+    cursor.execute("SELECT name FROM astro_twin_categories WHERE code = %s", (category_code,))
+    row = cursor.fetchone()
+    category_name = row[0] if row else category_code
+
+    # Получаем двойников
+    cursor.execute("""
+        SELECT p.name_ru, at.similarity_score, at.explanation
+        FROM astro_twins at
+        JOIN pantheon_enriched p ON at.twin_id = p.id
+        WHERE at.user_id = %s AND at.category_code = %s
+        ORDER BY at.similarity_score DESC
+        LIMIT 5
+    """, (user_id, category_code))
+    twins = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    if not twins:
+        await query.message.reply_text("Нет двойников в этой категории.")
+        return
+
+    message = f"🌠 <b>Звёздные двойники в категории «{category_name}»:</b>\n\n"
+    for idx, (name, score, explanation) in enumerate(twins, 1):
+        message += f"{idx}. <b>{name}</b> — совпадение {round(score * 100)}%\n<i>{explanation}</i>\n\n"
+
+    await query.message.reply_text(message.strip(), parse_mode="HTML")
+
+
+
+
 
 # Новый callback для "Подписка и баланс"
 async def show_balance_and_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3043,6 +3144,32 @@ async def handle_buy_package(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.message.reply_text("❌ Не удалось создать платёж. Попробуйте позже.")
         print(f"[ЮKassa] Ошибка создания платежа: {e}")
 
+    async def handle_show_planet_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+
+        planet_text = context.user_data.get("user_planets_info", "Информация о планетах недоступна.")
+        await query.message.reply_text(f"🔭 Расшифровка натальной карты:\n\n{planet_text}")
+
+        context.user_data["chain_id"] = 104
+        context.user_data["question_step"] = 0
+        context.user_data["event_answers"] = {}
+
+        await generate_forecasts_from_chain(update, context)
+
+async def handle_show_planet_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    planet_text = context.user_data.get("user_planets_info", "Информация о планетах недоступна.")
+    await query.message.reply_text(f"🔭 Расшифровка натальной карты:\n\n{planet_text}")
+
+    context.user_data["chain_id"] = 104
+    context.user_data["question_step"] = 0
+    context.user_data["event_answers"] = {}
+    context.user_data["button_id"] = 100
+    await generate_forecasts_from_chain(update, context)
+
 
 
 # Запуск
@@ -3151,6 +3278,8 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_invoice_callback, pattern="^invoice::"))
     app.add_handler(PreCheckoutQueryHandler(handle_pre_checkout))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
+    app.add_handler(CallbackQueryHandler(handle_show_planet_info, pattern="^show_planet_info$"))
+    app.add_handler(CallbackQueryHandler(show_twins_by_category, pattern=r"^show_twins_"))
 
     
     app.run_polling()

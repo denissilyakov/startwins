@@ -6,12 +6,25 @@ from telegram import LabeledPrice, Update
 from telegram.ext import ContextTypes
 from telegram.ext import PreCheckoutQueryHandler, MessageHandler, filters
 from dotenv import load_dotenv
+from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
 
 ZODIAC_SIGNS = []
 CHINESE_SIGNS = []
 load_dotenv()
 PROVIDER_TOKEN = os.getenv("PROVIDER_TOKEN")
 #PROVIDER_TOKEN = "381764678:TEST:126120"
+
+menu_keyboard = ReplyKeyboardMarkup(
+    [
+        [   KeyboardButton("🔮Прогноз на завтра"),
+            KeyboardButton("❤️Узнать о совместимости")
+        ],
+        [KeyboardButton("📅Прогноз на событие"), KeyboardButton("🌠 Задай свой вопрос")],  # Новая кнопка
+        [KeyboardButton("🌌Астро-Психология"), KeyboardButton("🪞Звёздный двойник")],
+        [KeyboardButton("🪙 Подписка и баланс")],
+    ],
+    resize_keyboard=True,
+)
 
 def get_pg_connection():
     db_url = os.getenv("ASTROLOG_DB")
@@ -257,9 +270,13 @@ async def handle_successful_payment(update: Update, context: ContextTypes.DEFAUL
     conn.commit()
     conn.close()
 
+    
     new_balance = get_user_balance(user_id)
     await update.message.reply_text(
         f"✅ Оплата прошла успешно!\n"
         f"🪙 Зачислено: {coin_amount} АстроКоинов\n"
-        f"💰 Новый баланс: {new_balance}"
+        f"💰 Новый баланс: {new_balance}",
+        reply_markup=menu_keyboard
     )
+
+

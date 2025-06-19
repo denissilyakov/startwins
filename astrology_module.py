@@ -11,6 +11,11 @@ from skyfield.api import load
 from datetime import datetime, timedelta
 import math
 import matplotlib.font_manager as fm
+from astrology_utils import get_pg_connection
+from collections import defaultdict
+from psycopg2.extras import RealDictCursor
+
+
 
 planet_names = {
     swe.SUN: "Солнце",
@@ -396,3 +401,268 @@ def generate_chart_image(birthdate: str, birthtime: str, tz_offset: int, user_na
     plt.close(fig)
 
     return buf
+
+def get_planet_positions(date_str: str, time_str: str = "12:00", tz_offset: int = 0) -> dict:
+    from skyfield.api import load
+    from datetime import datetime, timedelta
+    import swisseph as swe
+    
+
+    birth_dt = datetime.strptime(f"{date_str} {time_str}", "%d.%m.%Y %H:%M") - timedelta(hours=tz_offset)
+    jd = swe.julday(birth_dt.year, birth_dt.month, birth_dt.day,
+                    birth_dt.hour + birth_dt.minute / 60)
+
+    planets = list(planet_names.keys())
+    result = {}
+
+    for planet in planets:
+        pos, _ = swe.calc(jd, planet)
+        total_deg = pos[0]
+        sign_index = int(total_deg / 30)
+        sign = zodiac_signs[sign_index]
+        trait = zodiac_sign_traits[sign_index] if 0 <= sign_index < len(zodiac_sign_traits) else ""
+        description = planet_descriptions.get(planet_names[planet], "")
+
+        result[planet_names[planet]] = {
+            "degree": round(total_deg, 2),
+            "sign": sign,
+            "trait": trait,
+            "description": description
+        }
+
+    # Северный и Южный узлы
+    node_pos, _ = swe.calc(jd, swe.MEAN_NODE)
+    north = node_pos[0]
+    south = (north + 180) % 360
+    result["Северный узел"] = {
+        "degree": round(north, 2),
+        "sign": "",
+        "trait": "",
+        "description": "Узел развития, показывает кармическое направление"
+    }
+    result["Южный узел"] = {
+        "degree": round(south, 2),
+        "sign": "",
+        "trait": "",
+        "description": "Узел прошлого, символизирует кармические привычки"
+    }
+
+    return result
+
+def save_user_astrology(user_id: int, date_str: str, time_str: str = "12:00", tz_offset: int = 0):
+    conn = get_pg_connection()
+    cursor = conn.cursor()
+
+    try:
+        # Планеты
+        planet_data = get_planet_positions(date_str, time_str, tz_offset)
+        for planet_name, info in planet_data.items():
+            cursor.execute(
+                """
+                INSERT INTO user_astrology_planets (person_id, planet_name, zodiac_sign, degree, trait, description)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (user_id, planet_name, info["sign"], info["degree"], info["trait"], info["description"])
+            )
+
+        # Модельный текст с аспектами и домами
+        text_model = get_astrology_text_for_date(date_str, time_str, mode="model", tz_offset=tz_offset)
+
+        # Аспекты
+        if "Аспекты:" in text_model:
+            aspects_part = text_model.split("Аспекты:")[1].split("Дома:")[0].strip()
+            if aspects_part != "нет аспектов":
+                for aspect_line in aspects_part.split("|"):
+                    aspect_line = aspect_line.strip()
+                    if not aspect_line:
+                        continue
+                    try:
+                        pair, rest = aspect_line.split(":")
+                        p1, p2 = pair.strip().split(" и ")
+                        aspect_type, diff = rest.strip().split(" (")
+                        diff_val = float(diff.replace("°", "").replace(")", ""))
+                        cursor.execute(
+                            """
+                            INSERT INTO user_astrology_aspects (person_id, planet1_name, planet2_name, aspect_type, degree_difference)
+                            VALUES (%s, %s, %s, %s, %s)
+                            """,
+                            (user_id, p1.strip(), p2.strip(), aspect_type.strip(), diff_val)
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Ошибка разбора аспекта: {aspect_line} — {e}")
+
+        # Дома
+        if "Дома:" in text_model:
+            houses_part = text_model.split("Дома:")[1].split("Северный узел:")[0].strip()
+            for house_line in houses_part.split("|"):
+                house_line = house_line.strip()
+                if not house_line:
+                    continue
+                try:
+                    house_num = int(house_line.split(" ")[1])
+                    meaning = house_line.split("(")[1].split(")")[0]
+                    degree = float(house_line.split(":")[1].replace("°", "").strip())
+                    cursor.execute(
+                        """
+                        INSERT INTO user_astrology_houses (person_id, house_number, meaning, degree)
+                        VALUES (%s, %s, %s, %s)
+                        """,
+                        (user_id, house_num, meaning.strip(), degree)
+                    )
+                except Exception as e:
+                    print(f"⚠️ Ошибка разбора дома: {house_line} — {e}")
+
+        conn.commit()
+        print(f"✅ Разбор для пользователя {user_id} успешно сохранён.")
+    except Exception as e:
+        print(f"❌ Ошибка при обработке пользователя {user_id}: {e}")
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
+
+# Функции для Звездного Двойника
+
+async def generate_explanation(user_elements, twin_elements, weights, category_code):
+    explanation_parts = []
+    for element in weights:
+        element_type = element['factor_type']
+        element_name = element['factor_name']
+        weight = element['weight']
+
+        if element_type == 'planet':
+            user_val = user_elements.get('planets', {}).get(element_name)
+            twin_val = twin_elements.get('planets', {}).get(element_name)
+            if user_val and twin_val:
+                diff = abs(user_val - twin_val)
+                if diff <= 10:
+                    explanation_parts.append(f"{element_name} в похожей позиции (разница {diff:.1f}°)")
+        elif element_type == 'house':
+            user_val = user_elements.get('houses', {}).get(element_name)
+            twin_val = twin_elements.get('houses', {}).get(element_name)
+            if user_val and twin_val:
+                diff = abs(user_val - twin_val)
+                if diff <= 10:
+                    explanation_parts.append(f"{element_name} в схожем градусе (разница {diff:.1f}°)")
+
+    if explanation_parts:
+        return "Совпадения: " + "; ".join(explanation_parts)
+    else:
+        return "Двойник имеет близкие астрологические характеристики в ключевых элементах категории."
+
+
+async def calculate_astrological_twins_for_category(user_id, user_gender_ru, category_code, twin_category_id):
+    conn = get_pg_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("""
+        SELECT * FROM astro_twin_weights WHERE category_code = %s
+    """, (category_code,))
+    weights = cursor.fetchall()
+
+    def fetch_user_data():
+        planets = {}
+        cursor.execute("SELECT planet_name, degree FROM user_astrology_planets WHERE person_id = %s", (user_id,))
+        for row in cursor.fetchall():
+            planets[row['planet_name']] = row['degree']
+
+        houses = {}
+        cursor.execute("SELECT house_number, degree FROM user_astrology_houses WHERE person_id = %s", (user_id,))
+        for row in cursor.fetchall():
+            houses[f"Дом {row['house_number']}"] = row['degree']
+
+        return {'planets': planets, 'houses': houses}
+
+    user_data = fetch_user_data()
+
+    # Кандидаты (сначала всех)
+    cursor.execute("""
+        SELECT id, countrycode FROM pantheon_enriched WHERE gender_ru = %s
+    """, (user_gender_ru,))
+    candidates = cursor.fetchall()
+
+    matches = []
+    for candidate in candidates:
+        twin_id = candidate['id']
+        country = candidate['countrycode']
+
+        twin_planets = {}
+        cursor.execute("SELECT planet_name, degree FROM astrology_planets WHERE person_id = %s", (twin_id,))
+        for row in cursor.fetchall():
+            twin_planets[row['planet_name']] = row['degree']
+
+        twin_houses = {}
+        cursor.execute("SELECT house_number, degree FROM astrology_houses WHERE person_id = %s", (twin_id,))
+        for row in cursor.fetchall():
+            twin_houses[f"Дом {row['house_number']}"] = row['degree']
+
+        twin_data = {'planets': twin_planets, 'houses': twin_houses}
+
+        score = 0
+        total_weight = 0
+
+        for weight_row in weights:
+            el_type = weight_row['factor_type']
+            element = weight_row['factor_name']
+            weight = float(weight_row['weight'])
+            total_weight += weight
+
+            user_val = user_data[el_type + 's'].get(element)
+            twin_val = twin_data[el_type + 's'].get(element)
+
+            if user_val is not None and twin_val is not None:
+                diff = abs(user_val - twin_val)
+                diff = min(diff, 360 - diff)
+                score += weight * max(0, (1 - diff / 30))
+
+        normalized_score = score / total_weight if total_weight else 0
+        matches.append((twin_id, country, normalized_score, twin_data))
+
+    matches.sort(key=lambda x: -x[2])
+
+    top_twins = []
+    ru_count = 0
+    for match in matches:
+        if len(top_twins) == 5:
+            break
+        twin_id, country, sim_score, twin_data = match
+        if country == 'RU':
+            if ru_count < 2:
+                top_twins.append((twin_id, sim_score, twin_data))
+                ru_count += 1
+            elif len(top_twins) < 5:
+                top_twins.append((twin_id, sim_score, twin_data))
+        else:
+            if len(top_twins) < 5:
+                top_twins.append((twin_id, sim_score, twin_data))
+
+    for twin_id, sim_score, twin_data in top_twins:
+        explanation = await generate_explanation(user_data, twin_data, weights, category_code)
+        cursor.execute("""
+            INSERT INTO astro_twins (user_id, twin_id, category_code, similarity_score, explanation, twin_category_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (user_id, twin_id, category_code, sim_score, explanation, twin_category_id))
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+async def calculate_twins_for_all_categories(user_id, user_gender_ru):
+    
+    conn = get_pg_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    cursor.execute("SELECT id, code FROM astro_twin_categories")
+    categories = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    for cat in categories:
+        await calculate_astrological_twins_for_category(
+            user_id=user_id,
+            user_gender_ru=user_gender_ru,
+            category_code=cat["code"],
+            twin_category_id=cat["id"]
+        )
