@@ -14,7 +14,7 @@ import matplotlib.font_manager as fm
 from astrology_utils import get_pg_connection
 from collections import defaultdict
 from psycopg2.extras import RealDictCursor
-
+from twin_cache import twin_data_cache, twin_meta
 
 
 planet_names = {
@@ -560,6 +560,7 @@ async def calculate_astrological_twins_for_category(user_id, user_gender_ru, cat
     """, (category_code,))
     weights = cursor.fetchall()
 
+    # Данные пользователя
     def fetch_user_data():
         planets = {}
         cursor.execute("SELECT planet_name, degree FROM user_astrology_planets WHERE person_id = %s", (user_id,))
@@ -575,34 +576,22 @@ async def calculate_astrological_twins_for_category(user_id, user_gender_ru, cat
 
     user_data = fetch_user_data()
 
-    # Кандидаты (сначала всех)
-    cursor.execute("""
-        SELECT id, countrycode FROM pantheon_enriched WHERE gender_ru = %s
-    """, (user_gender_ru,))
-    candidates = cursor.fetchall()
+    # Кандидаты — фильтруем только нужный пол
+    candidates = [
+        (twin_id, meta['country'])
+        for twin_id, meta in twin_meta.items()
+        if meta['gender'] == user_gender_ru and twin_id in twin_data_cache
+    ]
 
     matches = []
-    for candidate in candidates:
-        twin_id = candidate['id']
-        country = candidate['countrycode']
-
-        twin_planets = {}
-        cursor.execute("SELECT planet_name, degree FROM astrology_planets WHERE person_id = %s", (twin_id,))
-        for row in cursor.fetchall():
-            twin_planets[row['planet_name']] = row['degree']
-
-        twin_houses = {}
-        cursor.execute("SELECT house_number, degree FROM astrology_houses WHERE person_id = %s", (twin_id,))
-        for row in cursor.fetchall():
-            twin_houses[f"Дом {row['house_number']}"] = row['degree']
-
-        twin_data = {'planets': twin_planets, 'houses': twin_houses}
+    for twin_id, country in candidates:
+        twin_data = twin_data_cache[twin_id]
 
         score = 0
         total_weight = 0
 
         for weight_row in weights:
-            el_type = weight_row['factor_type']
+            el_type = weight_row['factor_type']  # 'planet' или 'house'
             element = weight_row['factor_name']
             weight = float(weight_row['weight'])
             total_weight += weight
@@ -618,8 +607,10 @@ async def calculate_astrological_twins_for_category(user_id, user_gender_ru, cat
         normalized_score = score / total_weight if total_weight else 0
         matches.append((twin_id, country, normalized_score, twin_data))
 
+    # Сортируем по убыванию схожести
     matches.sort(key=lambda x: -x[2])
 
+    # Выбираем топ-5, минимум 2 из России
     top_twins = []
     ru_count = 0
     for match in matches:
@@ -636,6 +627,7 @@ async def calculate_astrological_twins_for_category(user_id, user_gender_ru, cat
             if len(top_twins) < 5:
                 top_twins.append((twin_id, sim_score, twin_data))
 
+    # Сохраняем в БД
     for twin_id, sim_score, twin_data in top_twins:
         explanation = await generate_explanation(user_data, twin_data, weights, category_code)
         cursor.execute("""

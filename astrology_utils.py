@@ -234,6 +234,8 @@ async def handle_invoice_callback(update: Update, context: ContextTypes.DEFAULT_
         provider_token=PROVIDER_TOKEN,
         currency="RUB",
         prices=[LabeledPrice(label=title, amount=price_kop)],
+        need_email=True,
+        send_email_to_provider=True,
         start_parameter="astro_start"
     )
 

@@ -47,7 +47,7 @@ from yookassa import Configuration, Payment
 import uuid
 from telegram.ext import PreCheckoutQueryHandler
 from dateutil.relativedelta import relativedelta
-
+from twin_cache import load_twin_data
 
 # Настройка ключей ЮKassa
 Configuration.account_id = os.getenv("YOOKASSA_SHOP_ID")
@@ -2835,7 +2835,7 @@ async def handle_star_twin_menu(update: Update, context: ContextTypes.DEFAULT_TY
 
     if count == 0:
         await update.message.reply_text(
-            "Подбираю звёздных двойников. Пожалуйста, немного подождите, это займёт несколько минут...",
+            "Подбираю звёздных двойников. Пожалуйста, немного подождите...",
             reply_markup=ReplyKeyboardRemove()
         )
         await calculate_twins_for_all_categories(user_id, user_gender_ru)
@@ -2915,7 +2915,10 @@ async def show_twins_by_category(update: Update, context: ContextTypes.DEFAULT_T
         message += f"{idx}. <b>{name}</b> — совпадение {round(score * 100)}%\n<i>{explanation}</i>\n\n"
 
     await query.message.reply_text(message.strip(), parse_mode="HTML")
-
+    await update.effective_message.reply_text(
+        "Ты готов продолжить погружение во Вселенную? Выбери пункт меню:",
+        reply_markup=menu_keyboard,
+        )
 
 
 
@@ -3176,7 +3179,7 @@ async def handle_show_planet_info(update: Update, context: ContextTypes.DEFAULT_
 def main():
     
     load_static_data()  # <--- Загружаем все константы из БД
-    
+    load_twin_data()
     # --- перед запуском polling --- запускаем задачу рассылки
     async def startup_tasks():
         await send_update_notification_to_all_chats(app)
