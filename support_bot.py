@@ -8,7 +8,7 @@ from aiogram.enums import ParseMode
 
 # === Настройки ===
 API_TOKEN = '7578554558:AAGwtDOYQWbw7b1axbhSfXYs0ttgTnawkOM'
-SUPPORT_CHAT_ID = 7507693525  # ID оператора или группы
+SUPPORT_CHAT_ID = -1002764789009  # ID оператора или группы
 
 # === Логирование ===
 logging.basicConfig(level=logging.INFO)
