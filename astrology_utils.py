@@ -7,6 +7,7 @@ from telegram.ext import ContextTypes
 from telegram.ext import PreCheckoutQueryHandler, MessageHandler, filters
 from dotenv import load_dotenv
 from telegram import KeyboardButton, ReplyKeyboardMarkup, Update
+import json
 
 ZODIAC_SIGNS = []
 CHINESE_SIGNS = []
@@ -225,6 +226,20 @@ async def handle_invoice_callback(update: Update, context: ContextTypes.DEFAULT_
 
     id,title, coin_amount, price_rub = row
     price_kop = int(price_rub*100)
+    provider_data = json.dumps({ "receipt": {
+                                    "items": [
+                                            {"description": f"Покупка {coin_amount} АстроКоинов",
+                                            "quantity": 1,
+                                            "amount": {
+                                                        "value": price_kop / 100,
+                                                        "currency": "RUB"},
+                                            "vat_code": 6,
+                                            "payment_mode": "full_payment",
+                                            "payment_subject": "service"}
+                                            ]
+                                    }
+                                }
+                                )
 
     await context.bot.send_invoice(
         chat_id=update.effective_chat.id,
@@ -237,7 +252,8 @@ async def handle_invoice_callback(update: Update, context: ContextTypes.DEFAULT_
         need_email=True,
         send_email_to_provider=True,
         is_flexible=False,
-        start_parameter="astro_start"
+        start_parameter="astro_start",
+        provider_data=provider_data
     )
 
 async def handle_pre_checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
