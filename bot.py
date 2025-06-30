@@ -48,6 +48,8 @@ import uuid
 from telegram.ext import PreCheckoutQueryHandler
 from dateutil.relativedelta import relativedelta
 from twin_cache import load_twin_data
+from timezonefinder import TimezoneFinder
+import pytz
 
 # Настройка ключей ЮKassa
 Configuration.account_id = os.getenv("YOOKASSA_SHOP_ID")
@@ -61,7 +63,7 @@ proxies = {
 }
 logging.basicConfig(level=logging.INFO)
 
-ASK_NAME, ASK_BIRTHDATE, ASK_BIRTHPLACE, ASK_BIRTHTIME, ASK_VIP_DATE, WAIT_ANSWER, CONFIRM_RESET = range(7)
+ASK_NAME, ASK_BIRTHDATE, ASK_BIRTHPLACE, ASK_BIRTHTIME, ASK_VIP_DATE, WAIT_ANSWER, CONFIRM_RESET, ASK_TZ_OFFSET = range(8)
 
 # Клавиатуры
 cancel_keyboard = ReplyKeyboardMarkup(
@@ -832,12 +834,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Вычисляем планеты, если есть дата рождения и нет расчётов
     if "birthdate" in context.user_data and "user_planets_info" not in context.user_data:
-        context.user_data["user_planets_info"] = get_astrology_text_for_date(
-            context.user_data["birthdate"],
-            time_str=context.user_data.get("birthtime", "12:00"),
-            mode="model",
-            tz_offset=context.user_data.get("tz_offset", 0)
-        )
+        try:
+            context.user_data["user_planets_info"] = get_astrology_text_for_date(
+                context.user_data["birthdate"],
+                time_str=context.user_data.get("birthtime", "12:00").strip(),
+                mode="model",
+                tz_offset=context.user_data.get("tz_offset", 0)
+            )
+        except ValueError as e:
+            logging.warning(f"Ошибка при расчёте планет: {e}")
+            reply_target = update.message or update.callback_query.message
+            await reply_target.reply_text(
+                "⚠️ Не удалось определить натальную карту — возможно, не указано время рождения.\n"
+                "Пожалуйста, зарегистрируйся заново.",
+                reply_markup=ReplyKeyboardRemove()
+            )
+
+            return await reset_user_data(update, context)
 
     # Если пользователь зарегистрирован — показываем меню
     if "name" in context.user_data and "birthdate" and "birthplace" in context.user_data:
@@ -2222,6 +2235,8 @@ async def handle_main_menu(update, context):
 
 def run_model_warmup_in_thread():
     asyncio.run(warm_up_model())
+    
+
 
 async def get_birthtime(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -2248,7 +2263,7 @@ async def get_birthtime(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         [[KeyboardButton("Не знаю")]], resize_keyboard=True
                     )
                 )
-                return ASK_BIRTHTIME
+                return ASK_NAME
     else:
         return ConversationHandler.END
 
@@ -2258,45 +2273,27 @@ async def get_birthtime(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Принято. Время рождения: {birthtime}",
         reply_markup=ReplyKeyboardRemove()
     )
+    
 
-    context.user_data["user_planets_info"] = get_astrology_text_for_date(
-        context.user_data["birthdate"],
-        time_str=context.user_data["birthtime"],
-        mode="pretty",
-        tz_offset=context.user_data.get("tz_offset", 0)
+    # Предложить пользователю выбрать часовой пояс вручную
+    keyboard = [
+        ["UTC−5 🇺🇸 Нью-Йорк", "UTC−4 🇧🇸 Нассау", "UTC−3 🇧🇷 Сан-Паулу"],
+        ["UTC−2 🇧🇷 Фернанду", "UTC−1 🇨🇻 Кабо-Верде", "UTC±0 🇬🇧 Лондон"],
+        ["UTC+1 🇩🇪 Берлин", "UTC+2 🇷🇺 Калининград", "UTC+3 🇷🇺 Москва"],
+        ["UTC+4 🇷🇺 Самара", "UTC+5 🇷🇺 Екатеринбург", "UTC+6 🇷🇺 Омск"],
+        ["UTC+7 🇷🇺 Красноярск", "UTC+8 🇷🇺 Иркутск", "UTC+9 🇷🇺 Якутск"],
+        ["UTC+10 🇷🇺 Владивосток", "UTC+11 🇷🇺 Магадан", "UTC+12 🇷🇺 Камчатка"]
+    ]
+
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+
+    context.user_data["birthtime"] = birthtime
+    await message.reply_text(
+        "Теперь выбери часовой пояс своего местонахождения:",
+        reply_markup=reply_markup
     )
+    return ASK_TZ_OFFSET
 
-    buf = generate_chart_image(
-        context.user_data["birthdate"],
-        birthtime,
-        context.user_data.get("tz_offset", 0),
-        context.user_data.get("name", "") + ", это твоя натальная карта."
-    )
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔍 Расшифровка натальной карты", callback_data="show_planet_info")]
-    ])
-
-    await message.reply_photo(photo=buf, caption="🌌 Твоя натальная карта",
-        reply_markup=keyboard)
-
-    context.user_data["chat_id"] = update.effective_chat.id
-    save_user_data(user_id, context.user_data)
-    save_user_astrology(user_id, context.user_data["birthdate"], birthtime, context.user_data.get("tz_offset", 0))
-
-    if context.user_data.get("compat_chain_id"):
-        context.user_data["chain_id"] = context.user_data.pop("compat_chain_id")
-        context.user_data["question_step"] = 0
-        context.user_data["event_answers"] = {}
-        return await ask_question(update, context)
-
-    if add_welcome_bonus_if_needed(user_id):
-        update_user_balance(user_id,100)
-        await message.reply_text("Спасибо за регистрацию! Тебе начислен привественный бонус 100 АстроКоинов 🪙", reply_markup=menu_keyboard)
-    else:
-        await message.reply_text("Рады нашей встрече! ✨💫🤗 Выбери пункт в меню:", reply_markup=menu_keyboard)
-
-    return ConversationHandler.END
 
 
 
@@ -2417,6 +2414,7 @@ async def full_post_init(application):
     await setup(application)
     # Потом отправляем всем обновлённое сообщение
     await send_start_on_launch(application)
+    asyncio.create_task(check_outbox_loop(application.bot))  # ← запуск фоновой задачи
 
 async def ask_star_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["forecast_date"] = ""
@@ -3173,7 +3171,109 @@ async def handle_show_planet_info(update: Update, context: ContextTypes.DEFAULT_
     context.user_data["button_id"] = 100
     await generate_forecasts_from_chain(update, context)
 
+async def get_tz_offset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message or (update.callback_query and update.callback_query.message)
+    birthtime = context.user_data["birthtime"]
+    user_id = update.effective_user.id
+    text = update.message.text.strip()
 
+    match = re.search(r"UTC([−\-+±]?)(\d+)", text)
+    if match:
+        sign = match.group(1)
+        hours = int(match.group(2))
+        offset_hours = hours if sign in ('+', '±') else -hours
+    else:
+        await update.message.reply_text("Не удалось определить сдвиг. Попробуй выбрать из списка.")
+        return ASK_TZ_OFFSET
+
+    context.user_data["current_tz_offset"] = offset_hours
+
+    # Сохраняем в БД
+    try:
+        conn = get_pg_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE users SET current_tz_offset = %s WHERE user_id = %s",
+            (offset_hours, user_id)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Ошибка при обновлении current_tz_offset: {e}")
+        return ASK_TZ_OFFSET
+
+    await update.message.reply_text(
+        f"Спасибо! Выбранный сдвиг: UTC{offset_hours:+d}"
+    )
+    
+
+    context.user_data["user_planets_info"] = get_astrology_text_for_date(
+        context.user_data["birthdate"],
+        time_str=context.user_data["birthtime"],
+        mode="pretty",
+        tz_offset=context.user_data.get("tz_offset", 0)
+    )
+
+    buf = generate_chart_image(
+        context.user_data["birthdate"],
+        birthtime,
+        context.user_data.get("tz_offset", 0),
+        context.user_data.get("name", "") + ", это твоя натальная карта."
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔍 Расшифровка натальной карты", callback_data="show_planet_info")]
+    ])
+
+    await message.reply_photo(photo=buf, caption="🌌 Твоя натальная карта",
+        reply_markup=keyboard)
+
+    context.user_data["chat_id"] = update.effective_chat.id
+    save_user_data(user_id, context.user_data)
+    save_user_astrology(user_id, context.user_data["birthdate"], birthtime, context.user_data.get("tz_offset", 0))
+
+    if context.user_data.get("compat_chain_id"):
+        context.user_data["chain_id"] = context.user_data.pop("compat_chain_id")
+        context.user_data["question_step"] = 0
+        context.user_data["event_answers"] = {}
+        return await ask_question(update, context)
+
+    if add_welcome_bonus_if_needed(user_id):
+        update_user_balance(user_id,100)
+        await message.reply_text("Спасибо за регистрацию! Тебе начислен привественный бонус 100 АстроКоинов 🪙", reply_markup=menu_keyboard)
+    else:
+        await message.reply_text("Рады нашей встрече! ✨💫🤗 Выбери пункт в меню:", reply_markup=menu_keyboard)
+
+
+    return ConversationHandler.END
+
+async def check_outbox_loop(bot):
+    while True:
+        try:
+            conn = get_pg_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT id, chat_id, text FROM outbox_messages WHERE status = 0 ORDER BY created_at LIMIT 10")
+            messages = cur.fetchall()
+
+            for msg_id, chat_id, text in messages:
+                try:
+                    await bot.send_message(chat_id=chat_id, text=text)
+                    cur.execute("""
+                        UPDATE outbox_messages
+                        SET status = 1, sent_at = NOW()
+                        WHERE id = %s
+                    """, (msg_id,))
+                    conn.commit()
+                except Exception as e:
+                    logging.warning(f"Ошибка при отправке сообщения {msg_id} в чат {chat_id}: {e}")
+
+            cur.close()
+            conn.close()
+        except Exception as e:
+            logging.error(f"Ошибка в цикле outbox: {e}")
+
+        await asyncio.sleep(60)  # ждать 60 секунд
 
 # Запуск
 def main():
@@ -3254,7 +3354,7 @@ def main():
             ],
             WAIT_ANSWER: [MessageHandler(filters.TEXT & ~filters.COMMAND, user_wait_answer)],
             CONFIRM_RESET: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_reset)],
-
+            ASK_TZ_OFFSET: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_tz_offset)]
         },
         fallbacks=[MessageHandler(filters.Regex("(?i)^отменить$"), cancel)],
     )
@@ -3283,7 +3383,6 @@ def main():
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
     app.add_handler(CallbackQueryHandler(handle_show_planet_info, pattern="^show_planet_info$"))
     app.add_handler(CallbackQueryHandler(show_twins_by_category, pattern=r"^show_twins_"))
-
     
     app.run_polling()
 
