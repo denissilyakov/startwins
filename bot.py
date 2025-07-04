@@ -3275,6 +3275,32 @@ async def check_outbox_loop(bot):
 
         await asyncio.sleep(60)  # ждать 60 секунд
 
+# ⚙️ Сброс context.user_data по user_id через секретное слово
+async def admin_reset_user_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
+    if len(args) != 2:
+        await update.message.reply_text("⚠️ Использование: /admin_reset_user_data {user_id} Bluebird14")
+        return
+
+    try:
+        target_user_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Неверный формат user_id.")
+        return
+
+    secret_word = args[1]
+    if secret_word != "Bluebird14":
+        await update.message.reply_text("🚫 Неверное секретное слово.")
+        return
+
+    app_user_data = context.application.user_data
+
+    if target_user_id in app_user_data:
+        app_user_data[target_user_id].clear()
+        await update.message.reply_text(f"✅ context.user_data для user_id {target_user_id} очищен.")
+    else:
+        await update.message.reply_text(f"ℹ️ Нет данных в context.user_data для user_id {target_user_id}.")
+
 # Запуск
 def main():
     
@@ -3383,7 +3409,8 @@ def main():
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, handle_successful_payment))
     app.add_handler(CallbackQueryHandler(handle_show_planet_info, pattern="^show_planet_info$"))
     app.add_handler(CallbackQueryHandler(show_twins_by_category, pattern=r"^show_twins_"))
-    
+    app.add_handler(CommandHandler("admin_reset_user_data", admin_reset_user_data))
+
     app.run_polling()
 
 if __name__ == "__main__":
