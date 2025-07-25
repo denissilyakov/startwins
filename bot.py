@@ -50,6 +50,9 @@ from dateutil.relativedelta import relativedelta
 from twin_cache import load_twin_data
 from timezonefinder import TimezoneFinder
 import pytz
+from telegram.error import Forbidden, RetryAfter, TimedOut, BadRequest
+
+
 
 # Настройка ключей ЮKassa
 Configuration.account_id = os.getenv("YOOKASSA_SHOP_ID")
@@ -3248,32 +3251,76 @@ async def get_tz_offset(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return ConversationHandler.END
 
+
 async def check_outbox_loop(bot):
     while True:
         try:
             conn = get_pg_connection()
             cur = conn.cursor()
-            cur.execute("SELECT id, chat_id, text FROM outbox_messages WHERE status = 0 ORDER BY created_at LIMIT 10")
+
+            cur.execute("""
+                SELECT id, chat_id, text
+                FROM outbox_messages
+                WHERE status = 0
+                ORDER BY created_at
+                LIMIT 10
+            """)
             messages = cur.fetchall()
 
             for msg_id, chat_id, text in messages:
                 try:
                     await bot.send_message(chat_id=chat_id, text=text)
+
+                    # Отметим как успешно отправленное
                     cur.execute("""
                         UPDATE outbox_messages
                         SET status = 1, sent_at = NOW()
                         WHERE id = %s
                     """, (msg_id,))
                     conn.commit()
+
+                except Forbidden as e:
+                    logging.warning(f"🚫 Бот заблокирован пользователем {chat_id}: {e}")
+                    cur.execute("""
+                        UPDATE outbox_messages
+                        SET status = -1, sent_at = NOW()
+                        WHERE id = %s
+                    """, (msg_id,))
+                    conn.commit()
+
+                except BadRequest as e:
+                    err_text = str(e).lower()
+                    if "chat not found" in err_text or "user not found" in err_text:
+                        logging.warning(f"❌ Чат {chat_id} не существует или удалён: {e}")
+                        cur.execute("""
+                            UPDATE outbox_messages
+                            SET status = -1, sent_at = NOW()
+                            WHERE id = %s
+                        """, (msg_id,))
+                        conn.commit()
+                    else:
+                        logging.warning(f"⚠️ Ошибка BadRequest: {e}")
+
+                except RetryAfter as e:
+                    wait_time = int(getattr(e, 'retry_after', 10))
+                    logging.warning(f"⏳ Flood control: Telegram требует подождать {wait_time} сек.")
+                    await asyncio.sleep(wait_time)
+
+                except TimedOut as e:
+                    logging.warning(f"⚠️ Таймаут при отправке сообщения {msg_id} в чат {chat_id}: {e}")
+                    # Не меняем статус — попробуем позже
+
                 except Exception as e:
-                    logging.warning(f"Ошибка при отправке сообщения {msg_id} в чат {chat_id}: {e}")
+                    logging.error(f"❗ Неизвестная ошибка при отправке {msg_id} в {chat_id}: {e}")
+                    # Не меняем статус — повторим позже
 
             cur.close()
             conn.close()
-        except Exception as e:
-            logging.error(f"Ошибка в цикле outbox: {e}")
 
-        await asyncio.sleep(60)  # ждать 60 секунд
+        except Exception as outer_e:
+            logging.error(f"[OUTBOX LOOP] Внешняя ошибка: {outer_e}")
+
+        await asyncio.sleep(60)  # проверять каждую минуту
 
 # ⚙️ Сброс context.user_data по user_id через секретное слово
 async def admin_reset_user_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
